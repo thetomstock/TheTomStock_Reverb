@@ -8,7 +8,7 @@ Mikrofonen går gjennom appen og ut til en virtuell lydkabel (VB-Cable), som Tik
 ## Funksjoner
 
 - Reverb (Freeverb via Spotify `pedalboard`) med knapper for romstørrelse, demping, bredde, mengde og miks
-- Lavkutt-filter (90 Hz) og mild kompressor, begge kan slås av og på
+- Lavkutt-filter (90 Hz), støyfilter (tre styrker) og kompressor, alle kan slås av og på
 - Begrenser på den ferdige lyden, og jevn endring av knapper uten klikk
 - Retro VU-målere for inn- og utnivå, og en enkel hjelpeside i appen
 

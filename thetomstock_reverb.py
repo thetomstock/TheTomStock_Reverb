@@ -12,7 +12,7 @@ from tkinter import ttk
 
 import numpy as np
 import sounddevice as sd
-from pedalboard import Compressor, HighpassFilter, Limiter, Pedalboard, Reverb
+from pedalboard import Compressor, Gain, HighpassFilter, Limiter, NoiseGate, Pedalboard, Reverb
 
 APP_NAME = "TheTomStock_Reverb"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -80,9 +80,13 @@ HELP_TEXT = [
     ("b", "Lavkutt: "),
     ("", "fjerner dype lyder du ikke trenger, som buldring, vind og bordbank. Lar stemmen stå klarere. "
          "Lar du den stå på, er det som regel best.\n"),
+    ("b", "Støyfilter: "),
+    ("", "demper susing og bakgrunnsstøy når du er stille, så seerne ikke hører det mellom ordene. "
+         "Velg styrke under «Støyfilter-styrke». Starter ordene dine å bli kuttet i begynnelsen eller slutten, "
+         "velg «Lett» eller slå det av. Hører du fortsatt støy, velg «Sterk».\n"),
     ("b", "Kompressor: "),
     ("", "jevner ut lydstyrken, så rolige ord ikke forsvinner og høye ord ikke blir for kraftige. "
-         "Den er stilt mildt. Slå den av hvis du vil ha stemmen helt naturlig.\n"),
+         "Den er stilt middels kraftig og løfter volumet litt. Slå den av hvis du vil ha stemmen helt naturlig.\n"),
     ("", "Begge kan slås av og på mens du sender.\n"),
 
     ("h2", "Forsinkelse\n"),
@@ -325,18 +329,19 @@ class Knob(tk.Canvas):
 
 
 class Engine:
+    GATE_DB = {0: -52.0, 1: -44.0, 2: -36.0}  # støyfilter: lett, middels, sterk
     REVERB_STEP = 0.01  # største endring av romparametre per lydblokk, så det ikke klikker
 
     def __init__(self):
         self.params = {k: d for k, _, _, _, d, _ in KNOBS}
-        self.params.update(bypass=False, lowcut=True, comp=True)
+        self.params.update(bypass=False, lowcut=True, gate=True, gate_level=1, comp=True)
         self.stream = None
         self.peak_in = 0.0
         self.peak_out = 0.0
         self.error = None
         self.sr = 48000.0
         self._cur = {}  # glattede verdier, brukes bare av lydtråden
-        self._was_on = {"lowcut": True, "comp": True}
+        self._was_on = {"lowcut": True, "gate": True, "comp": True}
         self._build_board()
 
     def _build_board(self):
@@ -345,7 +350,11 @@ class Engine:
                              dry_level=0.0, width=p["width"], freeze_mode=0.0)
         self.rev_board = Pedalboard([self.reverb])
         self.lowcut = Pedalboard([HighpassFilter(cutoff_frequency_hz=90.0)])
-        self.comp = Pedalboard([Compressor(threshold_db=-20.0, ratio=2.5, attack_ms=8.0, release_ms=150.0)])
+        self.gate_plugin = NoiseGate(threshold_db=self.GATE_DB[1], ratio=30.0, attack_ms=2.0, release_ms=150.0)
+        self.gate = Pedalboard([self.gate_plugin])
+        self._gate_db = self.GATE_DB[1]
+        self.comp = Pedalboard([Compressor(threshold_db=-26.0, ratio=4.0, attack_ms=6.0, release_ms=140.0),
+                                Gain(gain_db=4.0)])
         self.limiter = Pedalboard([Limiter(threshold_db=-1.0, release_ms=60.0)])
         self._cur.update(room=p["room"], damping=p["damping"], width=p["width"])
 
@@ -374,7 +383,11 @@ class Engine:
         x = indata[:, 0] * self._gain("in_gain", frames, True)
         self.peak_in = max(float(np.abs(x).max()), self.peak_in)
         sig = x.astype(np.float32)[np.newaxis, :]
-        for key, board in (("lowcut", self.lowcut), ("comp", self.comp)):
+        gate_db = self.GATE_DB.get(p["gate_level"], -44.0)
+        if gate_db != self._gate_db:
+            self._gate_db = gate_db
+            self.gate_plugin.threshold_db = gate_db
+        for key, board in (("lowcut", self.lowcut), ("gate", self.gate), ("comp", self.comp)):
             if p[key]:
                 if not self._was_on[key]:
                     board.reset()
@@ -496,7 +509,8 @@ class App(tk.Tk):
         data = {k: self.engine.params[k] for k, *_ in KNOBS}
         data.update(in_dev=self.in_var.get(), out_dev=self.out_var.get(), block=self.block_var.get(),
                     exclusive=self.mon_var.get(), lowcut=self.engine.params["lowcut"],
-                    comp=self.engine.params["comp"])
+                    comp=self.engine.params["comp"], gate=self.engine.params["gate"],
+                    gate_level=self.engine.params["gate_level"])
         try:
             os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
@@ -558,10 +572,23 @@ class App(tk.Tk):
 
         fx = tk.Frame(dev, bg=BG)
         fx.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        self.lowcut_btn = self._toggle_button(fx, "lowcut", "Lavkutt")
-        self.comp_btn = self._toggle_button(fx, "comp", "Kompressor")
-        tk.Label(fx, text="Lavkutt fjerner buldring og dunk. Kompressor jevner ut lydstyrken.", bg=BG, fg=MUTED,
-                 font=("Segoe UI", 8)).pack(side="left", padx=4)
+        top = tk.Frame(fx, bg=BG)
+        top.pack(side="top", anchor="w")
+        self.lowcut_btn = self._toggle_button(top, "lowcut", "Lavkutt")
+        self.gate_btn = self._toggle_button(top, "gate", "Støyfilter")
+        self.comp_btn = self._toggle_button(top, "comp", "Kompressor")
+        mid = tk.Frame(fx, bg=BG)
+        mid.pack(side="top", anchor="w", pady=(4, 0))
+        tk.Label(mid, text="Støyfilter-styrke", bg=BG, fg=MUTED).pack(side="left")
+        self.engine.params["gate_level"] = int(self.saved.get("gate_level", 1))
+        self.gate_var = tk.IntVar(value=self.engine.params["gate_level"])
+        for text, v in (("Lett", 0), ("Middels", 1), ("Sterk", 2)):
+            tk.Radiobutton(mid, text=text, value=v, variable=self.gate_var, bg=BG, fg=FG, selectcolor=PANEL,
+                           activebackground=BG, activeforeground=FG,
+                           command=lambda: self.engine.params.update(gate_level=self.gate_var.get())).pack(side="left")
+        tk.Label(fx, text="Lavkutt fjerner buldring. Støyfilter demper bakgrunnsstøy når du er stille. "
+                          "Kompressor jevner ut lydstyrken.", bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(
+            side="top", anchor="w", pady=(4, 0))
 
         bottom = tk.Frame(self, bg=BG)
         bottom.grid(row=5, column=0, sticky="we", padx=16, pady=12)
