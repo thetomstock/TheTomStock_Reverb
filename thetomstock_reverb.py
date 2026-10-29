@@ -12,7 +12,7 @@ from tkinter import ttk
 
 import numpy as np
 import sounddevice as sd
-from pedalboard import Gain, Limiter, Pedalboard, Reverb
+from pedalboard import Compressor, HighpassFilter, Limiter, Pedalboard, Reverb
 
 APP_NAME = "TheTomStock_Reverb"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -63,7 +63,7 @@ HELP_TEXT = [
     ("", "•  Bruk hodetelefoner. Da slipper du at høyttalerne lager ekko eller hyl.\n"
          "•  Si noe og se på måleren «LYD INN». Nålen skal gå ca. halvveis opp. "
          "Hvis den ofte går inn i det røde og lampen «PEAK» lyser, skru ned knappen «Mikrofon».\n"
-         "•  Knappen «Effekt: PÅ/AV» slår ekkoet av og på uten å stoppe lyden.\n"),
+         "•  Knappen «Ekko: PÅ/AV» slår ekkoet av og på uten å stoppe lyden.\n"),
 
     ("h2", "Hva knappene gjør\n"),
     ("", "De små gule ordene over knappene er de vanlige fagbegrepene. Ordene under knappene forklarer hva de gjør.\n"),
@@ -75,6 +75,15 @@ HELP_TEXT = [
     ("b", "Rombredde: "), ("", "hvor vidt ekkoet virker i hodetelefonene eller høyttalerne.\n"),
     ("b", "Volum ut: "), ("", "hvor høyt lyden sendes til TikTok.\n"),
     ("", "Tips: dobbeltklikk på en knapp for å sette den tilbake til utgangspunktet.\n"),
+
+    ("h2", "Lavkutt og kompressor\n"),
+    ("b", "Lavkutt: "),
+    ("", "fjerner dype lyder du ikke trenger, som buldring, vind og bordbank. Lar stemmen stå klarere. "
+         "Lar du den stå på, er det som regel best.\n"),
+    ("b", "Kompressor: "),
+    ("", "jevner ut lydstyrken, så rolige ord ikke forsvinner og høye ord ikke blir for kraftige. "
+         "Den er stilt mildt. Slå den av hvis du vil ha stemmen helt naturlig.\n"),
+    ("", "Begge kan slås av og på mens du sender.\n"),
 
     ("h2", "Forsinkelse\n"),
     ("", "Lyden går gjennom appen på noen få tideler av et sekund. «Minst» gir raskest lyd, "
@@ -316,43 +325,70 @@ class Knob(tk.Canvas):
 
 
 class Engine:
+    REVERB_STEP = 0.01  # største endring av romparametre per lydblokk, så det ikke klikker
+
     def __init__(self):
         self.params = {k: d for k, _, _, _, d, _ in KNOBS}
-        self.params["bypass"] = False
+        self.params.update(bypass=False, lowcut=True, comp=True)
         self.stream = None
         self.peak_in = 0.0
         self.peak_out = 0.0
         self.error = None
+        self.sr = 48000.0
+        self._cur = {}  # glattede verdier, brukes bare av lydtråden
+        self._was_on = {"lowcut": True, "comp": True}
         self._build_board()
 
     def _build_board(self):
         p = self.params
         self.reverb = Reverb(room_size=p["room"], damping=p["damping"], wet_level=1.0,
                              dry_level=0.0, width=p["width"], freeze_mode=0.0)
-        self.limiter = Limiter(threshold_db=-1.0, release_ms=50.0)
-        self.board = Pedalboard([self.reverb, self.limiter])
+        self.rev_board = Pedalboard([self.reverb])
+        self.lowcut = Pedalboard([HighpassFilter(cutoff_frequency_hz=90.0)])
+        self.comp = Pedalboard([Compressor(threshold_db=-20.0, ratio=2.5, attack_ms=8.0, release_ms=150.0)])
+        self.limiter = Pedalboard([Limiter(threshold_db=-1.0, release_ms=60.0)])
+        self._cur.update(room=p["room"], damping=p["damping"], width=p["width"])
 
     def update(self, key, value):
-        self.params[key] = value
-        if key == "room":
-            self.reverb.room_size = value
-        elif key == "damping":
-            self.reverb.damping = value
-        elif key == "width":
-            self.reverb.width = value
+        self.params[key] = value  # lydtråden henter verdien og glatter den selv
+
+    def _gain(self, key, frames, db):
+        """Gain som glir jevnt over blokken i stedet for å hoppe."""
+        target = 10 ** (self.params[key] / 20) if db else self.params[key]
+        prev = self._cur.get(key, target)
+        self._cur[key] = target
+        if prev == target:
+            return target
+        return np.linspace(prev, target, frames, endpoint=False, dtype=np.float32)
+
+    def _glide_reverb(self):
+        for key, attr in (("room", "room_size"), ("damping", "damping"), ("width", "width")):
+            target, cur = self.params[key], self._cur[key]
+            if cur != target:
+                cur = target if abs(target - cur) <= self.REVERB_STEP else cur + math.copysign(self.REVERB_STEP, target - cur)
+                self._cur[key] = cur
+                setattr(self.reverb, attr, cur)
 
     def _callback(self, indata, outdata, frames, time_info, status):
-        p = self.params
-        x = indata[:, 0].astype(np.float32) * (10 ** (p["in_gain"] / 20))
+        p, sr = self.params, self.sr
+        x = indata[:, 0] * self._gain("in_gain", frames, True)
         self.peak_in = max(float(np.abs(x).max()), self.peak_in)
+        sig = x.astype(np.float32)[np.newaxis, :]
+        for key, board in (("lowcut", self.lowcut), ("comp", self.comp)):
+            if p[key]:
+                if not self._was_on[key]:
+                    board.reset()
+                sig = board.process(sig, sr, reset=False)
+            self._was_on[key] = p[key]
+        stereo = np.repeat(sig, 2, axis=0)
         if p["bypass"]:
-            y = np.stack([x, x])
+            y = stereo
         else:
-            mono = x[np.newaxis, :]
-            wet = self.board.process(np.repeat(mono, 2, axis=0), 48000.0 if not hasattr(self, "sr") else self.sr,
-                                     reset=False)
-            y = wet * p["wet"] + np.stack([x, x]) * p["dry"]
-        y = y * (10 ** (p["out_gain"] / 20))
+            self._glide_reverb()
+            wet = self.rev_board.process(stereo, sr, reset=False)
+            y = wet * self._gain("wet", frames, False) + stereo * self._gain("dry", frames, False)
+        y = y * self._gain("out_gain", frames, True)
+        y = self.limiter.process(y.astype(np.float32), sr, reset=False)
         y = np.clip(y, -1.0, 1.0)
         self.peak_out = max(float(np.abs(y).max()), self.peak_out)
         outdata[:, :2] = y.T
@@ -459,7 +495,8 @@ class App(tk.Tk):
     def _save(self):
         data = {k: self.engine.params[k] for k, *_ in KNOBS}
         data.update(in_dev=self.in_var.get(), out_dev=self.out_var.get(), block=self.block_var.get(),
-                    exclusive=self.mon_var.get())
+                    exclusive=self.mon_var.get(), lowcut=self.engine.params["lowcut"],
+                    comp=self.engine.params["comp"])
         try:
             os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
@@ -519,9 +556,16 @@ class App(tk.Tk):
                        bg=BG, fg=FG, selectcolor=PANEL, activebackground=BG, activeforeground=FG,
                        command=self._start).grid(row=3, column=0, columnspan=2, sticky="w")
 
+        fx = tk.Frame(dev, bg=BG)
+        fx.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        self.lowcut_btn = self._toggle_button(fx, "lowcut", "Lavkutt")
+        self.comp_btn = self._toggle_button(fx, "comp", "Kompressor")
+        tk.Label(fx, text="Lavkutt fjerner buldring og dunk. Kompressor jevner ut lydstyrken.", bg=BG, fg=MUTED,
+                 font=("Segoe UI", 8)).pack(side="left", padx=4)
+
         bottom = tk.Frame(self, bg=BG)
         bottom.grid(row=5, column=0, sticky="we", padx=16, pady=12)
-        self.bypass_btn = tk.Button(bottom, text="Effekt: PÅ", width=12, bg="#050505", fg=HOT, relief="flat", highlightthickness=2, highlightbackground=ACCENT,
+        self.bypass_btn = tk.Button(bottom, text="Ekko: PÅ", width=12, bg="#050505", fg=HOT, relief="flat", highlightthickness=2, highlightbackground=ACCENT,
                                     activebackground="#1a0000", command=self._toggle_bypass)
         self.bypass_btn.pack(side="left")
         self.status = tk.Label(bottom, text="", bg=BG, fg=MUTED, anchor="w", justify="left")
@@ -639,10 +683,29 @@ class App(tk.Tk):
         parent.columnconfigure(1, weight=1)
         return cb
 
+    def _toggle_button(self, parent, key, name):
+        self.engine.params[key] = bool(self.saved.get(key, True))
+        btn = tk.Button(parent, width=15, bg="#050505", relief="flat", highlightthickness=2,
+                        activebackground="#1a0000", cursor="hand2")
+
+        def refresh():
+            on = self.engine.params[key]
+            btn.config(text=f"{name}: {'PÅ' if on else 'AV'}", fg=HOT if on else MUTED,
+                       highlightbackground=ACCENT if on else GOLD_DIM)
+
+        def toggle():
+            self.engine.params[key] = not self.engine.params[key]
+            refresh()
+
+        btn.config(command=toggle)
+        refresh()
+        btn.pack(side="left", padx=(0, 8))
+        return btn
+
     def _toggle_bypass(self):
         on = self.engine.params["bypass"]
         self.engine.params["bypass"] = not on
-        self.bypass_btn.config(text="Effekt: PÅ" if on else "Effekt: AV", fg=HOT if on else MUTED, highlightbackground=ACCENT if on else GOLD_DIM)
+        self.bypass_btn.config(text="Ekko: PÅ" if on else "Ekko: AV", fg=HOT if on else MUTED, highlightbackground=ACCENT if on else GOLD_DIM)
 
     def _start(self):
         in_dev = next(i for i, n in self.ins if n == self.in_var.get())

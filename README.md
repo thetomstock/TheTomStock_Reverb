@@ -5,6 +5,13 @@ Mikrofonen går gjennom appen og ut til en virtuell lydkabel (VB-Cable), som Tik
 
 ![ikon](thetomstock_reverb.ico)
 
+## Funksjoner
+
+- Reverb (Freeverb via Spotify `pedalboard`) med knapper for romstørrelse, demping, bredde, mengde og miks
+- Lavkutt-filter (90 Hz) og mild kompressor, begge kan slås av og på
+- Begrenser på den ferdige lyden, og jevn endring av knapper uten klikk
+- Retro VU-målere for inn- og utnivå, og en enkel hjelpeside i appen
+
 ## Slik bruker du den (for deg som bare vil prøve)
 
 1. Gå til **Releases** her på GitHub og last ned `TheTomStock_Reverb.exe`. Du trenger ikke Python.
