@@ -22,7 +22,7 @@ from pedalboard import (Compressor, Delay, Gain, HighpassFilter, HighShelfFilter
                         Pedalboard, Reverb)
 
 APP_NAME = "TheTomStock_Reverb"
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 REPO = "thetomstock/TheTomStock_Reverb"
 EXE_NAME = "TheTomStock_Reverb.exe"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -81,11 +81,11 @@ def write_swap_script(new_path, target, pid, script_path):
 chcp 65001 >nul
 set /a n=0
 :wait
-tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul
+"%SystemRoot%\\System32\\tasklist.exe" /FI "PID eq {pid}" 2>nul | "%SystemRoot%\\System32\\find.exe" "{pid}" >nul
 if not errorlevel 1 (
   set /a n+=1
-  if %n% GTR 30 goto fail
-  timeout /t 1 /nobreak >nul
+  if %n% GTR 60 goto fail
+  "%SystemRoot%\\System32\\ping.exe" -n 2 127.0.0.1 >nul
   goto wait
 )
 set /a n=0
@@ -93,8 +93,8 @@ set /a n=0
 move /Y "{new_path}" "{target}" >nul 2>&1
 if not errorlevel 1 goto done
 set /a n+=1
-if %n% GTR 30 goto fail
-timeout /t 1 /nobreak >nul
+if %n% GTR 60 goto fail
+"%SystemRoot%\\System32\\ping.exe" -n 2 127.0.0.1 >nul
 goto retry
 :done
 set PYINSTALLER_RESET_ENVIRONMENT=1
@@ -114,7 +114,8 @@ start "" "{target}"
 def launch_swap_script(script_path):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEIPASS", "_PYI"))}
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    # Bare CREATE_NO_WINDOW: med DETACHED_PROCESS i tillegg åpner hver kommando i skriptet et synlig konsollvindu
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(["cmd.exe", "/c", script_path], env=env, creationflags=flags, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
