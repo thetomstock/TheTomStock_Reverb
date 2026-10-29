@@ -12,6 +12,9 @@ Mikrofonen går gjennom appen og ut til en virtuell lydkabel (VB-Cable), som Tik
 - Begrenser på den ferdige lyden, og jevn endring av knapper uten klikk
 - Appen sjekker ved oppstart om det finnes en nyere versjon på GitHub (én vanlig forespørsel til api.github.com, ingenting sendes om deg). «Oppdater nå» laster ned den nye .exe-en, kontrollerer SHA-256-sjekksummen fra utgivelsen, bytter filen og starter på nytt
 - **Enkel** visning med fire knapper, eller **Avansert** visning med alle knapper og en rad med finjustering (lavkutt-frekvens, støygrense, kompressorstyrke, lys/mørk klang og ekko-start)
+- «Hør meg selv»: spill den ferdige lyden også i hodetelefonene dine mens den sendes til TikTok, med eget volum
+- Valg av inngangskanal (kanal 1, kanal 2 eller begge) for lydkort med flere innganger
+- Mykt støyfilter som fader jevnt inn og ut i stedet for å klippe lyden
 - Retro VU-målere for inn- og utnivå, og en enkel hjelpeside i appen
 
 ## Slik bruker du den (for deg som bare vil prøve)

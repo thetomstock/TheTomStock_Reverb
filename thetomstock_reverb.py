@@ -22,7 +22,7 @@ from pedalboard import (Compressor, Delay, Gain, HighpassFilter, HighShelfFilter
                         Pedalboard, Reverb)
 
 APP_NAME = "TheTomStock_Reverb"
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 REPO = "thetomstock/TheTomStock_Reverb"
 EXE_NAME = "TheTomStock_Reverb.exe"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -170,6 +170,13 @@ HELP_TEXT = [
     ("b", "Volum ut: "), ("", "hvor høyt lyden sendes til TikTok.\n"),
     ("", "Tips: dobbeltklikk på en knapp for å sette den tilbake til utgangspunktet.\n"),
 
+    ("h2", "Høre deg selv i ørene\n"),
+    ("", "Når lyden sendes til «CABLE Input», går den bare til TikTok og ikke til ørene dine. For å høre deg selv med effekten, "
+         "velg hodetelefonene dine under «Hør deg selv i» og trykk «Hør meg selv». Bruk hodetelefoner, ellers får du hyl og ekko. "
+         "Knappen «Volum i ørene» i Avansert visning bestemmer hvor høyt du hører deg selv, uten å endre det seerne hører. "
+         "Hører du små knepp, prøv en høyere forsinkelse. Du kan også la være å bruke dette og høre deg selv med Windows' "
+         "«Lytt til denne enheten».\n"),
+
     ("h2", "Enkel eller Avansert visning\n"),
     ("", "Øverst til høyre bytter du mellom «Enkel» og «Avansert». Enkel viser bare de fire viktigste knappene "
          "(Mikrofon, Romstørrelse, Mengde ekko og Volum ut). Avansert viser alle knappene, pluss en rad med finjustering. "
@@ -181,6 +188,10 @@ HELP_TEXT = [
     ("b", "Lys / mørk: "), ("", "mot høyre blir stemmen klarere og skarpere, mot venstre mykere og mørkere.\n"),
     ("b", "Ekko-start: "), ("", "en liten pause før ekkoet kommer. Gir stemmen mer plass og blir ofte mer naturlig.\n"),
 
+    ("b", "Inngangskanal: "),
+    ("", "har du et lydkort eller en lydboks (f.eks. Focusrite) med flere innganger, kan mikrofonen sitte på inngang 1 eller 2. "
+         "«Begge» fungerer som regel uansett. Rører ikke nålene seg når du snakker, prøv «Kanal 1» eller «Kanal 2».\n"),
+
     ("h2", "Lavkutt og kompressor\n"),
     ("", "Disse tre har hver sin PÅ/AV-knapp i Avansert visning, rett under knappen med samme tema.\n"),
     ("b", "Lavkutt: "),
@@ -188,7 +199,7 @@ HELP_TEXT = [
          "Lar du den stå på, er det som regel best.\n"),
     ("b", "Støyfilter: "),
     ("", "demper susing og bakgrunnsstøy når du er stille, så seerne ikke hører det mellom ordene. "
-         "Styrken justerer du med knappen «Støygrense» (høyere tall gir sterkere filter). Starter ordene dine å bli "
+         "Det virker mykt og jevnt, uten at det plutselig klipper lyden. Styrken justerer du med knappen «Støygrense» (høyere tall gir sterkere filter). Starter ordene dine å bli "
          "kuttet i begynnelsen eller slutten, velg et lavere tall eller slå det av. Hører du fortsatt støy, velg et høyere.\n"),
     ("b", "Kompressor: "),
     ("", "jevner ut lydstyrken, så rolige ord ikke forsvinner og høye ord ikke blir for kraftige. "
@@ -206,7 +217,9 @@ HELP_TEXT = [
     ("", "sjekk at TikTok LIVE Studio bruker «CABLE Output» som mikrofon, "
          "og at det står «CABLE Input» ved «Send lyden til». Sjekk også at nålene beveger seg når du snakker.\n"),
     ("b", "Nålene beveger seg ikke: "),
-    ("", "velg riktig mikrofon under «Din mikrofon», og sjekk at mikrofonen ikke er avslått i Windows.\n"),
+    ("", "velg riktig mikrofon under «Din mikrofon», og sjekk at mikrofonen ikke er avslått i Windows. "
+         "Har du et lydkort med flere innganger, prøv en annen «Inngangskanal» i Avansert visning. "
+         "Sjekk også at fantomstrøm (48V) er på hvis mikrofonen din trenger det.\n"),
     ("b", "Jeg hører meg selv med forsinkelse: "),
     ("", "bruk hodetelefoner, og slå av «Lytt til denne enheten» for mikrofonen i Windows' lydinnstillinger.\n"),
     ("b", "Lyden knitrer: "), ("", "velg en høyere forsinkelse i Avansert visning (Middels eller Mest) og lukk andre tunge programmer.\n"),
@@ -344,13 +357,14 @@ ADV_KNOBS = [
     ("comp_amt", "Jevn lyd", 0.0, 1.0, 0.6, lambda v: f"{v * 100:.0f} %"),
     ("tone", "Lys / mørk", -1.0, 1.0, 0.0, lambda v: f"{v * 6:+.0f} dB"),
     ("predelay", "Ekko-start", 0.0, 120.0, 0.0, lambda v: f"{v:.0f} ms"),
+    ("mon_vol", "Volum i ørene", -24.0, 6.0, 0.0, lambda v: f"{v:+.0f} dB"),
 ]
 
 # vanlige fagbegreper som vises over knappene
 TERMS = {"in_gain": "INNGANG", "room": "ROMSTØRRELSE", "damping": "DEMPING", "wet": "REVERB",
          "dry": "ORIGINAL", "width": "BREDDE", "out_gain": "UTGANG",
          "lc_freq": "LAVKUTT", "gate_db": "STØYFILTER", "comp_amt": "KOMPRESSOR", "tone": "TONE",
-         "predelay": "PRE-DELAY"}
+         "predelay": "PRE-DELAY", "mon_vol": "MONITOR"}
 
 
 class Knob(tk.Canvas):
@@ -449,17 +463,53 @@ class Knob(tk.Canvas):
         self.create_text(cx, 9, text=self.term, fill=GOLD, font=("Segoe UI", 7, "bold"))
 
 
+class Ring:
+    """Enkel ringbuffer mellom to lydstrømmer: én skriver, én leser."""
+
+    def __init__(self, frames=1 << 16):
+        self.cap = frames
+        self.buf = np.zeros((frames, 2), np.float32)
+        self.w = 0
+        self.r = 0
+
+    def write(self, data):
+        if len(data) >= self.cap:
+            data = data[-self.cap:]
+        n = len(data)
+        pos = self.w % self.cap
+        first = min(n, self.cap - pos)
+        self.buf[pos:pos + first] = data[:first]
+        if n > first:
+            self.buf[:n - first] = data[first:]
+        self.w += n
+
+    def read(self, out):
+        n = len(out)
+        pos = self.r % self.cap
+        first = min(n, self.cap - pos)
+        out[:first] = self.buf[pos:pos + first]
+        if n > first:
+            out[first:] = self.buf[:n - first]
+        self.r += n
+
+
 class Engine:
     REVERB_STEP = 0.01  # største endring av romparametre per lydblokk, så det ikke klikker
 
     def __init__(self):
         self.params = {k: d for k, _, _, _, d, _ in KNOBS + ADV_KNOBS}
-        self.params.update(bypass=False, lowcut=True, gate=True, comp=True)
+        self.params.update(bypass=False, lowcut=True, gate=True, comp=True, in_channel=2, monitor=False)
         self.stream = None
         self.peak_in = 0.0
         self.peak_out = 0.0
         self.error = None
         self.sr = 48000.0
+        self.block = 128
+        self.ring = Ring()
+        self.mon_stream = None
+        self.mon_error = None
+        self._mon_primed = False
+        self._mon_target = 384
         self._cur = {}  # glattede verdier, brukes bare av lydtråden
         self._was_on = {"lowcut": True, "gate": True, "comp": True}
         self._build_board()
@@ -471,7 +521,7 @@ class Engine:
         self.rev_board = Pedalboard([self.reverb])
         self.hp = HighpassFilter(cutoff_frequency_hz=p["lc_freq"])
         self.lowcut = Pedalboard([self.hp])
-        self.gate_plugin = NoiseGate(threshold_db=p["gate_db"], ratio=30.0, attack_ms=2.0, release_ms=150.0)
+        self.gate_plugin = NoiseGate(threshold_db=p["gate_db"], ratio=5.0, attack_ms=10.0, release_ms=400.0)
         self.gate = Pedalboard([self.gate_plugin])
         self.comp_plugin = Compressor(threshold_db=-26.0, ratio=4.0, attack_ms=6.0, release_ms=140.0)
         self.makeup = Gain(gain_db=4.0)
@@ -524,7 +574,14 @@ class Engine:
 
     def _callback(self, indata, outdata, frames, time_info, status):
         p, sr = self.params, self.sr
-        x = indata[:, 0] * self._gain("in_gain", frames, True)
+        ch = p["in_channel"]  # 0 = kanal 1, 1 = kanal 2, 2 = begge
+        if indata.shape[1] == 1 or ch == 0:
+            raw = indata[:, 0]
+        elif ch == 1:
+            raw = indata[:, 1]
+        else:
+            raw = (indata[:, 0] + indata[:, 1]) * 0.7071
+        x = raw * self._gain("in_gain", frames, True)
         self.peak_in = max(float(np.abs(x).max()), self.peak_in)
         sig = x.astype(np.float32)[np.newaxis, :]
         self._sync_plugins()
@@ -549,17 +606,64 @@ class Engine:
         y = np.clip(y, -1.0, 1.0)
         self.peak_out = max(float(np.abs(y).max()), self.peak_out)
         outdata[:, :2] = y.T
+        if self.mon_stream is not None:
+            g = self._gain("mon_vol", frames, True)
+            self.ring.write(y.T * (g[:, None] if isinstance(g, np.ndarray) else g))
+
+    def _mon_callback(self, outdata, frames, time_info, status):
+        r = self.ring
+        avail = r.w - r.r
+        if not self._mon_primed:
+            if avail < self._mon_target:
+                outdata.fill(0)
+                return
+            self._mon_primed = True
+        if avail > self._mon_target * 4:  # lydkortene går ikke helt likt, så hopp fram
+            r.r = r.w - self._mon_target
+            avail = self._mon_target
+        if avail < frames:
+            outdata.fill(0)
+            self._mon_primed = False
+            return
+        r.read(outdata)
+
+    def start_monitor(self, dev):
+        """Spiller den ferdige lyden også i en annen enhet, f.eks. hodetelefonene dine."""
+        self.stop_monitor()
+        self.mon_error = None
+        try:
+            self._mon_target = max(384, 3 * self.block)
+            self.ring.w = self.ring.r = 0
+            self._mon_primed = False
+            wasapi = sd.WasapiSettings(exclusive=False, auto_convert=True)
+            self.mon_stream = sd.OutputStream(samplerate=self.sr, blocksize=self.block, device=dev, channels=2,
+                                              dtype="float32", latency="low", extra_settings=wasapi,
+                                              callback=self._mon_callback)
+            self.mon_stream.start()
+        except Exception as exc:  # noqa: BLE001 - vises i GUI
+            self.mon_stream = None
+            self.mon_error = str(exc)
+
+    def stop_monitor(self):
+        stream, self.mon_stream = self.mon_stream, None
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     def start(self, in_dev, out_dev, blocksize, exclusive=False):
         self.stop()
         self.error = None
+        self.block = blocksize
         try:
             din, dout = sd.query_devices(in_dev), sd.query_devices(out_dev)
             self.sr = float(din["default_samplerate"])
             wasapi = sd.WasapiSettings(exclusive=exclusive, auto_convert=not exclusive)
             self.stream = sd.Stream(
                 samplerate=self.sr, blocksize=blocksize, device=(in_dev, out_dev),
-                channels=(1, 2), dtype="float32", latency="low",
+                channels=(max(1, min(2, int(din["max_input_channels"]))), 2), dtype="float32", latency="low",
                 extra_settings=(wasapi, wasapi), callback=self._callback)
             self.stream.start()
         except Exception as exc:  # noqa: BLE001 - vises i GUI
@@ -567,6 +671,7 @@ class Engine:
             self.error = str(exc)
 
     def stop(self):
+        self.stop_monitor()
         if self.stream is not None:
             try:
                 self.stream.stop()
@@ -738,7 +843,8 @@ class App(tk.Tk):
         data.update(in_dev=self.in_var.get(), out_dev=self.out_var.get(), block=self.block_var.get(),
                     exclusive=self.mon_var.get(), lowcut=self.engine.params["lowcut"],
                     comp=self.engine.params["comp"], gate=self.engine.params["gate"],
-                    mode=self.mode)
+                    mode=self.mode, in_channel=self.engine.params["in_channel"],
+                    monitor=self.engine.params["monitor"], mon_dev=self.mon_dev_var.get())
         try:
             os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
@@ -783,6 +889,17 @@ class App(tk.Tk):
 
         perf = tk.Frame(self.adv_frame, bg=PANEL)
         perf.pack(fill="x", padx=18, pady=(2, 10))
+        self.chan_var = tk.IntVar(value=int(self.saved.get("in_channel", 2)))
+        self.engine.params["in_channel"] = self.chan_var.get()
+        cline = tk.Frame(perf, bg=PANEL)
+        cline.pack(anchor="w")
+        tk.Label(cline, text="Inngangskanal", bg=PANEL, fg=MUTED).pack(side="left", padx=(0, 6))
+        for text, v in (("Kanal 1", 0), ("Kanal 2", 1), ("Begge", 2)):
+            tk.Radiobutton(cline, text=text, value=v, variable=self.chan_var, bg=PANEL, fg=FG, selectcolor=BG,
+                           activebackground=PANEL, activeforeground=FG,
+                           command=lambda: self.engine.params.update(in_channel=self.chan_var.get())).pack(side="left")
+        tk.Label(cline, text="  (rører ikke nålene seg, prøv en annen)", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 8)).pack(side="left")
         line = tk.Frame(perf, bg=PANEL)
         line.pack(anchor="w")
         tk.Label(line, text="Forsinkelse", bg=PANEL, fg=MUTED).pack(side="left", padx=(0, 6))
@@ -830,6 +947,18 @@ class App(tk.Tk):
                                     else (cable or out_names[0]))
         self.in_cb = self._row(dev, 0, "Din mikrofon", self.in_var, in_names)
         self.out_cb = self._row(dev, 1, "Send lyden til", self.out_var, out_names)
+        mon_names = self._monitor_names(out_names)
+        self.mon_dev_var = tk.StringVar(value=self.saved.get("mon_dev") if self.saved.get("mon_dev") in mon_names
+                                        else self._default(mon_names, ("Hodetelefoner", "Headphone", "Headset")))
+        self.engine.params["monitor"] = bool(self.saved.get("monitor", False))
+        tk.Label(dev, text="Hør deg selv i", bg=BG, fg=MUTED).grid(row=2, column=0, sticky="w", pady=4)
+        self.mon_cb = ttk.Combobox(dev, textvariable=self.mon_dev_var, values=mon_names, state="readonly", width=52)
+        self.mon_cb.grid(row=2, column=1, sticky="we", padx=(10, 0))
+        self.mon_cb.bind("<<ComboboxSelected>>", lambda e: self._sync_monitor())
+        self.mon_btn = tk.Button(dev, width=16, bg="#050505", relief="flat", highlightthickness=2,
+                                 activebackground="#1a0000", cursor="hand2", command=self._toggle_monitor)
+        self.mon_btn.grid(row=2, column=2, padx=(8, 0))
+        self._refresh_mon_btn()
         bottom = tk.Frame(self, bg=BG)
         bottom.grid(row=5, column=0, sticky="we", padx=16, pady=12)
         self.bypass_btn = tk.Button(bottom, text="Ekko: PÅ", width=12, bg="#050505", fg=HOT, relief="flat", highlightthickness=2, highlightbackground=ACCENT,
@@ -925,6 +1054,10 @@ class App(tk.Tk):
         in_names = [n for _, n in self.ins]
         out_names = [n for _, n in self.outs]
         self.in_cb["values"], self.out_cb["values"] = in_names, out_names
+        mon_names = self._monitor_names(out_names)
+        self.mon_cb["values"] = mon_names
+        if self.mon_dev_var.get() not in mon_names:
+            self.mon_dev_var.set(self._default(mon_names, ("Hodetelefoner", "Headphone", "Headset")))
         if self.in_var.get() not in in_names:
             self.in_var.set(self._default(in_names, ("Mikrofon", "Microphone")))
         cable = self._cable(out_names)
@@ -963,7 +1096,7 @@ class App(tk.Tk):
         for i, key in enumerate(main):
             self.knobs[key].grid(row=0, column=i, padx=pad, pady=6)
         for i, (key, *_) in enumerate(ADV_KNOBS):
-            self.knobs[key].grid(row=0, column=i, padx=22, pady=(2, 0))
+            self.knobs[key].grid(row=0, column=i, padx=8, pady=(2, 0))
         for i, btn in enumerate(self.toggles):
             btn.grid(row=1, column=i, pady=(0, 8))
         if advanced:
@@ -989,6 +1122,28 @@ class App(tk.Tk):
         refresh()
         return btn
 
+    @staticmethod
+    def _monitor_names(out_names):
+        return [n for n in out_names if "CABLE" not in n.upper()] or out_names
+
+    def _refresh_mon_btn(self):
+        on = self.engine.params["monitor"]
+        self.mon_btn.config(text="Hør meg selv: PÅ" if on else "Hør meg selv: AV", fg=HOT if on else MUTED,
+                            highlightbackground=ACCENT if on else GOLD_DIM)
+
+    def _toggle_monitor(self):
+        self.engine.params["monitor"] = not self.engine.params["monitor"]
+        self._refresh_mon_btn()
+        self._sync_monitor()
+
+    def _sync_monitor(self):
+        self.engine.stop_monitor()
+        self.engine.mon_error = None
+        if self.engine.params["monitor"] and self.engine.stream is not None:
+            dev = next((i for i, n in self.outs if n == self.mon_dev_var.get()), None)
+            if dev is not None:
+                self.engine.start_monitor(dev)
+
     def _toggle_bypass(self):
         on = self.engine.params["bypass"]
         self.engine.params["bypass"] = not on
@@ -998,6 +1153,7 @@ class App(tk.Tk):
         in_dev = next(i for i, n in self.ins if n == self.in_var.get())
         out_dev = next(i for i, n in self.outs if n == self.out_var.get())
         self.engine.start(in_dev, out_dev, self.block_var.get(), self.mon_var.get())
+        self._sync_monitor()
 
     def _tick(self):
         if self._update_found and not self._update_shown:
@@ -1014,7 +1170,9 @@ class App(tk.Tk):
             self.status.config(text="Kunne ikke starte lyden. Sjekk at riktig mikrofon er valgt, "
                                "eller velg høyere forsinkelse (i Avansert visning).", fg="#ff6b6b", wraplength=420)
         elif lat is not None:
-            self.status.config(text=f"Alt kjører · forsinkelse ca. {lat:.0f} ms", fg=MUTED, wraplength=0)
+            extra = "  ·  Kunne ikke åpne enheten for å høre deg selv" if self.engine.mon_error else ""
+            self.status.config(text=f"Alt kjører · forsinkelse ca. {lat:.0f} ms{extra}",
+                               fg="#ffb347" if extra else MUTED, wraplength=0)
         self.after(33, self._tick)
 
     def _close(self):
