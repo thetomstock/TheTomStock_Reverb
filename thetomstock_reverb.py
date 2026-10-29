@@ -22,7 +22,7 @@ from pedalboard import (Compressor, Delay, Gain, HighpassFilter, HighShelfFilter
                         Pedalboard, Reverb)
 
 APP_NAME = "TheTomStock_Reverb"
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 REPO = "thetomstock/TheTomStock_Reverb"
 EXE_NAME = "TheTomStock_Reverb.exe"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -251,6 +251,45 @@ class RoundBox(tk.Canvas):
         self.delete("bg")
         rrect(self, 1, 1, w - 1, h - 1, self.radius, fill=self.fill, outline=self.outline, width=1, tags="bg")
         self.tag_lower("bg")
+
+
+class RoundButton(tk.Canvas):
+    """Avrundet knapp med dempet gullkant, som rammene rundt målerne."""
+
+    def __init__(self, master, command, width=142, height=30, radius=11, bg=BG):
+        super().__init__(master, width=width, height=height, bg=bg, highlightthickness=0, cursor="hand2")
+        self.w, self.h, self.radius, self.command = width, height, radius, command
+        self.text, self.on, self.color, self.enabled, self.hover = "", False, None, True, False
+        self.bind("<Button-1>", self._click)
+        self.bind("<Enter>", lambda e: self._hover(True))
+        self.bind("<Leave>", lambda e: self._hover(False))
+
+    def _click(self, _event):
+        if self.enabled:
+            self.command()
+
+    def _hover(self, state):
+        self.hover = state
+        self._draw()
+
+    def show(self, text, on, color=None):
+        self.text, self.on, self.color = text, on, color
+        self._draw()
+
+    def set_command(self, command):
+        self.command = command
+
+    def set_enabled(self, enabled):
+        self.enabled = enabled
+        self.config(cursor="hand2" if enabled else "arrow")
+        self._draw()
+
+    def _draw(self):
+        self.delete("all")
+        rrect(self, 1, 1, self.w - 1, self.h - 1, self.radius,
+              fill="#1a1405" if self.hover and self.enabled else "#050505", outline=GOLD_DIM, width=2)
+        fg = "#6b5a22" if not self.enabled else (self.color or (HOT if self.on else MUTED))
+        self.create_text(self.w / 2, self.h / 2, text=self.text, fill=fg, font=("Segoe UI", 9))
 
 
 class VUMeter(tk.Canvas):
@@ -758,10 +797,9 @@ class App(tk.Tk):
                                   font=("Segoe UI", 9, "bold"))
         self.upd_label.pack(side="left", padx=(10, 8), pady=6)
         auto = self._can_self_update()
-        self.upd_btn = tk.Button(box, text="Oppdater nå" if auto else "Last ned", bg="#050505", fg=HOT,
-                                 relief="flat", highlightthickness=2, highlightbackground=ACCENT,
-                                 activebackground="#1a0000", cursor="hand2",
-                                 command=self._start_update if auto else lambda: webbrowser.open(info["page"]))
+        self.upd_btn = RoundButton(box, self._start_update if auto else lambda: webbrowser.open(info["page"]),
+                                   width=100, height=26, radius=9, bg="#140f00")
+        self.upd_btn.show("Oppdater nå" if auto else "Last ned", True)
         self.upd_btn.pack(side="left", padx=(0, 8), pady=4)
         box.place(relx=1.0, x=-18, y=16, anchor="ne")
 
@@ -771,7 +809,7 @@ class App(tk.Tk):
         new_path = os.path.splitext(target)[0] + ".new.exe"
         self._swap = (new_path, target)
         self._dl = {"state": "downloading", "pct": 0}
-        self.upd_btn.config(state="disabled")
+        self.upd_btn.set_enabled(False)
 
         def work():
             try:
@@ -801,7 +839,9 @@ class App(tk.Tk):
             dl["state"] = "failed"
             page = self._update_found["page"]
             self.upd_label.config(text="Oppdateringen feilet. Last ned selv:", fg="#ff6b6b")
-            self.upd_btn.config(state="normal", text="Last ned", command=lambda: webbrowser.open(page))
+            self.upd_btn.set_command(lambda: webbrowser.open(page))
+            self.upd_btn.show("Last ned", True)
+            self.upd_btn.set_enabled(True)
 
     def _dwm(self, win=None):
         """Runde hjørner og gull ramme fra Windows 11 (ignoreres stille på eldre Windows)."""
@@ -867,9 +907,9 @@ class App(tk.Tk):
         if self.mode not in ("enkel", "avansert"):
             self.mode = "enkel"
         self.mode_btns = {}
-        for m, text in (("enkel", "Enkel"), ("avansert", "Avansert")):
-            btn = tk.Button(sw, text=text, width=9, relief="flat", bg="#050505", highlightthickness=2, bd=0,
-                            activebackground="#1a0000", cursor="hand2", command=lambda m=m: self._set_mode(m))
+        self.mode_labels = {"enkel": "Enkel", "avansert": "Avansert"}
+        for m, text in self.mode_labels.items():
+            btn = RoundButton(sw, lambda m=m: self._set_mode(m), width=84, height=28, radius=10)
             btn.pack(side="left", padx=2)
             self.mode_btns[m] = btn
 
@@ -956,14 +996,13 @@ class App(tk.Tk):
         self.mon_cb = ttk.Combobox(dev, textvariable=self.mon_dev_var, values=mon_names, state="readonly", width=52)
         self.mon_cb.grid(row=2, column=1, sticky="we", padx=(10, 0))
         self.mon_cb.bind("<<ComboboxSelected>>", lambda e: self._sync_monitor())
-        self.mon_btn = tk.Button(dev, width=16, bg="#050505", relief="flat", highlightthickness=2,
-                                 activebackground="#1a0000", cursor="hand2", command=self._toggle_monitor)
+        self.mon_btn = RoundButton(dev, self._toggle_monitor)
         self.mon_btn.grid(row=2, column=2, padx=(8, 0))
         self._refresh_mon_btn()
         bottom = tk.Frame(self, bg=BG)
         bottom.grid(row=5, column=0, sticky="we", padx=16, pady=12)
-        self.bypass_btn = tk.Button(bottom, text="Ekko: PÅ", width=12, bg="#050505", fg=HOT, relief="flat", highlightthickness=2, highlightbackground=ACCENT,
-                                    activebackground="#1a0000", command=self._toggle_bypass)
+        self.bypass_btn = RoundButton(bottom, self._toggle_bypass, width=110, height=30)
+        self.bypass_btn.show("Ekko: PÅ", True)
         self.bypass_btn.pack(side="left")
         self.status = tk.Label(bottom, text="", bg=BG, fg=MUTED, anchor="w", justify="left")
         self.status.pack(side="left", padx=12)
@@ -975,20 +1014,19 @@ class App(tk.Tk):
         self.cable_msg.pack(side="top", anchor="w")
         self.cable_btns = tk.Frame(self.cable_box, bg=BG)
         self.cable_btns.pack(side="top", anchor="w", pady=(4, 0))
-        tk.Button(self.cable_btns, text="Last ned VB-Cable", bg="#050505", fg=HOT, relief="flat", highlightthickness=2,
-                  highlightbackground=ACCENT,
-                  command=lambda: webbrowser.open(CABLE_URL)).pack(side="left")
-        tk.Button(self.cable_btns, text="Sjekk på nytt", bg="#050505", fg=FG, relief="flat", highlightthickness=2,
-                  highlightbackground=GOLD_DIM,
-                  command=self._refresh_devices).pack(side="left", padx=8)
+        dl_btn = RoundButton(self.cable_btns, lambda: webbrowser.open(CABLE_URL), width=140, height=28, radius=10)
+        dl_btn.show("Last ned VB-Cable", True)
+        dl_btn.pack(side="left")
+        check_btn = RoundButton(self.cable_btns, self._refresh_devices, width=110, height=28, radius=10)
+        check_btn.show("Sjekk på nytt", False, color=FG)
+        check_btn.pack(side="left", padx=8)
         link = tk.Label(self.cable_box, text="Last ned VB-Cable (gratis): vb-audio.com/Cable", bg=BG, fg=GOLD,
                         font=("Segoe UI", 9, "underline"), cursor="hand2")
         link.pack(side="top", anchor="w", pady=(6, 0))
         link.bind("<Button-1>", lambda e: webbrowser.open(CABLE_URL))
         self._update_cable_notice(cable)
-        self.help_btn = tk.Button(self, text="?  Hjelp", bg="#050505", fg=GOLD, relief="flat", highlightthickness=2,
-                                  highlightbackground=GOLD_DIM, activebackground="#1a1608", activeforeground=GOLD,
-                                  cursor="hand2", command=self._help)
+        self.help_btn = RoundButton(self, self._help, width=84, height=28, radius=10)
+        self.help_btn.show("?  Hjelp", False, color=GOLD)
         self.help_btn.place(relx=1.0, rely=1.0, anchor="se", x=-18, y=-16)
 
     def _help(self):
@@ -1087,8 +1125,7 @@ class App(tk.Tk):
     def _set_mode(self, mode):
         self.mode = mode
         for m, btn in self.mode_btns.items():
-            on = m == mode
-            btn.config(fg=HOT if on else MUTED, highlightbackground=ACCENT if on else GOLD_DIM)
+            btn.show(self.mode_labels[m], m == mode)
         for knob in self.knobs.values():
             knob.grid_forget()
         advanced = mode == "avansert"
@@ -1107,19 +1144,16 @@ class App(tk.Tk):
 
     def _toggle_button(self, parent, key):
         self.engine.params[key] = bool(self.saved.get(key, True))
-        btn = tk.Button(parent, width=8, bg="#050505", relief="flat", highlightthickness=2,
-                        activebackground="#1a0000", cursor="hand2")
-
-        def refresh():
-            on = self.engine.params[key]
-            btn.config(text="PÅ" if on else "AV", fg=HOT if on else MUTED,
-                       highlightbackground=ACCENT if on else GOLD_DIM)
-
         def toggle():
             self.engine.params[key] = not self.engine.params[key]
             refresh()
 
-        btn.config(command=toggle)
+        btn = RoundButton(parent, toggle, width=72, height=26, radius=9, bg=PANEL)
+
+        def refresh():
+            on = self.engine.params[key]
+            btn.show("PÅ" if on else "AV", on)
+
         refresh()
         return btn
 
@@ -1129,8 +1163,7 @@ class App(tk.Tk):
 
     def _refresh_mon_btn(self):
         on = self.engine.params["monitor"]
-        self.mon_btn.config(text="Hør meg selv: PÅ" if on else "Hør meg selv: AV", fg=HOT if on else MUTED,
-                            highlightbackground=ACCENT if on else GOLD_DIM)
+        self.mon_btn.show("Hør meg selv: PÅ" if on else "Hør meg selv: AV", on)
 
     def _toggle_monitor(self):
         self.engine.params["monitor"] = not self.engine.params["monitor"]
@@ -1148,7 +1181,7 @@ class App(tk.Tk):
     def _toggle_bypass(self):
         on = self.engine.params["bypass"]
         self.engine.params["bypass"] = not on
-        self.bypass_btn.config(text="Ekko: PÅ" if on else "Ekko: AV", fg=HOT if on else MUTED, highlightbackground=ACCENT if on else GOLD_DIM)
+        self.bypass_btn.show("Ekko: PÅ" if on else "Ekko: AV", on)
 
     def _start(self):
         in_dev = next(i for i, n in self.ins if n == self.in_var.get())
