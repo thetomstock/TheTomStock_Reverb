@@ -10,7 +10,7 @@ Mikrofonen går gjennom appen og ut til en virtuell lydkabel (VB-Cable), som Tik
 - Reverb (Freeverb via Spotify `pedalboard`) med knapper for romstørrelse, demping, bredde, mengde og miks
 - Lavkutt-filter (90 Hz), støyfilter (tre styrker) og kompressor, alle kan slås av og på
 - Begrenser på den ferdige lyden, og jevn endring av knapper uten klikk
-- Appen sjekker ved oppstart om det finnes en nyere versjon på GitHub (én vanlig forespørsel til api.github.com, ingenting sendes om deg) og viser en lenke hvis det gjør det
+- Appen sjekker ved oppstart om det finnes en nyere versjon på GitHub (én vanlig forespørsel til api.github.com, ingenting sendes om deg). «Oppdater nå» laster ned den nye .exe-en, kontrollerer SHA-256-sjekksummen fra utgivelsen, bytter filen og starter på nytt
 - Retro VU-målere for inn- og utnivå, og en enkel hjelpeside i appen
 
 ## Slik bruker du den (for deg som bare vil prøve)

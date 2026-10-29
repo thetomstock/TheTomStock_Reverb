@@ -2,11 +2,14 @@
 
 Mikrofon -> forsterkning -> reverb -> begrenser -> utgang (f.eks. VB-Cable).
 """
+import hashlib
 import json
 import math
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
 import urllib.request
@@ -18,8 +21,9 @@ import sounddevice as sd
 from pedalboard import Compressor, Gain, HighpassFilter, Limiter, NoiseGate, Pedalboard, Reverb
 
 APP_NAME = "TheTomStock_Reverb"
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 REPO = "thetomstock/TheTomStock_Reverb"
+EXE_NAME = "TheTomStock_Reverb.exe"
 CABLE_URL = "https://vb-audio.com/Cable/"
 SETTINGS_PATH = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), APP_NAME, "settings.json")
 
@@ -37,6 +41,83 @@ def version_tuple(text):
     return tuple(int(x) for x in re.findall(r"\d+", text)[:3])
 
 
+def download_update(url, dest, expected_sha, progress):
+    """Laster ned og kontrollerer filen mot sjekksummen fra GitHub. Kaster feil hvis noe er galt."""
+    if not url.startswith(f"https://github.com/{REPO}/releases/download/"):
+        raise ValueError("Uventet nedlastingsadresse")
+    req = urllib.request.Request(url, headers={"User-Agent": "TheTomStock_Reverb"})
+    h = hashlib.sha256()
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp, open(dest, "wb") as f:
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            while True:
+                chunk = resp.read(256 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                h.update(chunk)
+                done += len(chunk)
+                if total:
+                    progress(done * 100 // total)
+        if h.hexdigest() != expected_sha.lower():
+            raise ValueError("Filen er skadet (sjekksummen stemmer ikke)")
+        with open(dest, "rb") as f:
+            if f.read(2) != b"MZ":
+                raise ValueError("Filen er ikke et Windows-program")
+    except Exception:
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        raise
+
+
+def write_swap_script(new_path, target, pid, script_path):
+    """Lager et lite skript som venter til appen er lukket, bytter filen og starter den på nytt.
+    Går noe galt, starter den gamle versjonen igjen."""
+    text = f"""@echo off
+chcp 65001 >nul
+set /a n=0
+:wait
+tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul
+if not errorlevel 1 (
+  set /a n+=1
+  if %n% GTR 30 goto fail
+  timeout /t 1 /nobreak >nul
+  goto wait
+)
+set /a n=0
+:retry
+move /Y "{new_path}" "{target}" >nul 2>&1
+if not errorlevel 1 goto done
+set /a n+=1
+if %n% GTR 30 goto fail
+timeout /t 1 /nobreak >nul
+goto retry
+:done
+set PYINSTALLER_RESET_ENVIRONMENT=1
+start "" "{target}"
+goto end
+:fail
+del "{new_path}" >nul 2>&1
+set PYINSTALLER_RESET_ENVIRONMENT=1
+start "" "{target}"
+:end
+(goto) 2>nul & del "%~f0"
+"""
+    with open(script_path, "w", encoding="utf-8", newline="\r\n") as f:
+        f.write(text)
+
+
+def launch_swap_script(script_path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEIPASS", "_PYI"))}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    subprocess.Popen(["cmd.exe", "/c", script_path], env=env, creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def resource_path(name):
     """Finner filer både når appen kjøres som skript og som ferdig .exe."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -52,7 +133,9 @@ def mix(c1, c2, t):
 # (stil, tekst) - vises i hjelpevinduet
 HELP_TEXT = [
     ("h1", "Slik bruker du TheTomStock_Reverb\n"),
-    ("", f"Versjon {APP_VERSION}. Appen sjekker selv om det finnes en nyere versjon når den åpnes, og viser en gul melding øverst til høyre hvis det gjør det.\n"),
+    ("", f"Versjon {APP_VERSION}. Appen sjekker selv om det finnes en nyere versjon når den åpnes, og viser en gul melding øverst til høyre hvis det gjør det. "
+         "Trykk «Oppdater nå», så laster appen ned den nye versjonen, kontrollerer at filen er riktig, "
+         "starter på nytt og beholder innstillingene dine.\n"),
     ("", "Appen gir stemmen din ekko, som når du snakker i et stort rom eller en kirke. "
          "Det skjer mens du sender live, og seerne hører stemmen din med effekten.\n"),
 
@@ -477,6 +560,7 @@ class App(tk.Tk):
         self.after(33, self._tick)
         self.after(50, self._dwm)
         self._update_found = None
+        self._dl = None
         self._update_shown = False
         threading.Thread(target=self._check_update, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self._close)
@@ -491,23 +575,76 @@ class App(tk.Tk):
             with urllib.request.urlopen(req, timeout=6) as resp:
                 data = json.load(resp)
             tag = data["tag_name"]
-            url = data.get("html_url", "")
-            if not url.startswith(f"https://github.com/{REPO}/"):
-                url = f"https://github.com/{REPO}/releases/latest"
-            if version_tuple(tag) > version_tuple(APP_VERSION):
-                self._update_found = (tag, url)
+            if version_tuple(tag) <= version_tuple(APP_VERSION):
+                return
+            page = data.get("html_url", "")
+            if not page.startswith(f"https://github.com/{REPO}/"):
+                page = f"https://github.com/{REPO}/releases/latest"
+            asset = next((a for a in data.get("assets", []) if a.get("name") == EXE_NAME), {})
+            digest = str(asset.get("digest", ""))
+            sha = digest.split(":", 1)[1] if digest.startswith("sha256:") else ""
+            self._update_found = {"tag": tag, "page": page, "url": asset.get("browser_download_url", ""),
+                                  "sha": sha if re.fullmatch(r"[0-9a-fA-F]{64}", sha) else ""}
         except Exception:  # noqa: BLE001 - ingen nett eller GitHub nede, ikke et problem
             pass
 
+    def _can_self_update(self):
+        info = self._update_found
+        return bool(getattr(sys, "frozen", False) and info["url"] and info["sha"]
+                    and os.access(os.path.dirname(os.path.abspath(sys.executable)), os.W_OK))
+
     def _show_update(self):
-        tag, url = self._update_found
+        info = self._update_found
+        self._dl = {"state": "idle", "pct": 0}
         box = tk.Frame(self, bg="#140f00", highlightbackground=GOLD, highlightcolor=GOLD, highlightthickness=1)
-        tk.Label(box, text=f"Ny versjon er klar: {tag}", bg="#140f00", fg=GOLD,
-                 font=("Segoe UI", 9, "bold")).pack(side="left", padx=(10, 8), pady=6)
-        tk.Button(box, text="Last ned", bg="#050505", fg=HOT, relief="flat", highlightthickness=2,
-                  highlightbackground=ACCENT, activebackground="#1a0000", cursor="hand2",
-                  command=lambda: webbrowser.open(url)).pack(side="left", padx=(0, 8), pady=4)
+        self.upd_label = tk.Label(box, text=f"Ny versjon er klar: {info['tag']}", bg="#140f00", fg=GOLD,
+                                  font=("Segoe UI", 9, "bold"))
+        self.upd_label.pack(side="left", padx=(10, 8), pady=6)
+        auto = self._can_self_update()
+        self.upd_btn = tk.Button(box, text="Oppdater nå" if auto else "Last ned", bg="#050505", fg=HOT,
+                                 relief="flat", highlightthickness=2, highlightbackground=ACCENT,
+                                 activebackground="#1a0000", cursor="hand2",
+                                 command=self._start_update if auto else lambda: webbrowser.open(info["page"]))
+        self.upd_btn.pack(side="left", padx=(0, 8), pady=4)
         box.place(relx=1.0, x=-18, y=16, anchor="ne")
+
+    def _start_update(self):
+        info = self._update_found
+        target = os.path.abspath(sys.executable)
+        new_path = os.path.splitext(target)[0] + ".new.exe"
+        self._swap = (new_path, target)
+        self._dl = {"state": "downloading", "pct": 0}
+        self.upd_btn.config(state="disabled")
+
+        def work():
+            try:
+                download_update(info["url"], new_path, info["sha"], lambda pct: self._dl.update(pct=pct))
+                self._dl["state"] = "ready"
+            except Exception as exc:  # noqa: BLE001
+                self._dl.update(state="error", msg=str(exc))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _poll_update(self):
+        dl = getattr(self, "_dl", None)
+        if not dl:
+            return
+        if dl["state"] == "downloading":
+            self.upd_label.config(text=f"Laster ned … {dl['pct']} %")
+        elif dl["state"] == "ready":
+            dl["state"] = "applying"
+            self.upd_label.config(text="Starter på nytt …")
+            new_path, target = self._swap
+            script = os.path.join(tempfile.gettempdir(), "TheTomStock_Reverb_update.bat")
+            write_swap_script(new_path, target, os.getpid(), script)
+            launch_swap_script(script)
+            self._close()
+            return True
+        elif dl["state"] == "error":
+            dl["state"] = "failed"
+            page = self._update_found["page"]
+            self.upd_label.config(text="Oppdateringen feilet. Last ned selv:", fg="#ff6b6b")
+            self.upd_btn.config(state="normal", text="Last ned", command=lambda: webbrowser.open(page))
 
     def _dwm(self, win=None):
         """Runde hjørner og gull ramme fra Windows 11 (ignoreres stille på eldre Windows)."""
@@ -783,6 +920,8 @@ class App(tk.Tk):
         if self._update_found and not self._update_shown:
             self._update_shown = True
             self._show_update()
+        if self._poll_update():
+            return
         pin, pout = self.engine.peak_in, self.engine.peak_out
         self.engine.peak_in = self.engine.peak_out = 0.0
         self.meter_in.feed(pin)
