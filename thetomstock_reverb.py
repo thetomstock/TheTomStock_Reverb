@@ -18,10 +18,11 @@ from tkinter import ttk
 
 import numpy as np
 import sounddevice as sd
-from pedalboard import Compressor, Gain, HighpassFilter, Limiter, NoiseGate, Pedalboard, Reverb
+from pedalboard import (Compressor, Delay, Gain, HighpassFilter, HighShelfFilter, Limiter, NoiseGate,
+                        Pedalboard, Reverb)
 
 APP_NAME = "TheTomStock_Reverb"
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 REPO = "thetomstock/TheTomStock_Reverb"
 EXE_NAME = "TheTomStock_Reverb.exe"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -169,21 +170,33 @@ HELP_TEXT = [
     ("b", "Volum ut: "), ("", "hvor høyt lyden sendes til TikTok.\n"),
     ("", "Tips: dobbeltklikk på en knapp for å sette den tilbake til utgangspunktet.\n"),
 
+    ("h2", "Enkel eller Avansert visning\n"),
+    ("", "Øverst til høyre bytter du mellom «Enkel» og «Avansert». Enkel viser bare de fire viktigste knappene "
+         "(Mikrofon, Romstørrelse, Mengde ekko og Volum ut). Avansert viser alle knappene, pluss en rad med finjustering. "
+         "Knappene du ikke ser i Enkel beholder verdiene sine. Bytter du mellom visningene, mister du ingenting. "
+         "I Avansert finner du også PÅ/AV-knapper under de tre første finjusteringsknappene, samt valgene for forsinkelse.\n"),
+    ("b", "Kutt dype lyder: "), ("", "hvor høyt lavkuttet skjærer. Høyere tall fjerner mer dunk og buldring.\n"),
+    ("b", "Støygrense: "), ("", "hvor høy lyden må være før støyfilteret slipper den gjennom. Høyere tall (mot -25) gir sterkere støyfilter.\n"),
+    ("b", "Jevn lyd: "), ("", "hvor kraftig kompressoren er. Mot 0 er den svak, mot 100 % er den kraftig.\n"),
+    ("b", "Lys / mørk: "), ("", "mot høyre blir stemmen klarere og skarpere, mot venstre mykere og mørkere.\n"),
+    ("b", "Ekko-start: "), ("", "en liten pause før ekkoet kommer. Gir stemmen mer plass og blir ofte mer naturlig.\n"),
+
     ("h2", "Lavkutt og kompressor\n"),
+    ("", "Disse tre har hver sin PÅ/AV-knapp i Avansert visning, rett under knappen med samme tema.\n"),
     ("b", "Lavkutt: "),
     ("", "fjerner dype lyder du ikke trenger, som buldring, vind og bordbank. Lar stemmen stå klarere. "
          "Lar du den stå på, er det som regel best.\n"),
     ("b", "Støyfilter: "),
     ("", "demper susing og bakgrunnsstøy når du er stille, så seerne ikke hører det mellom ordene. "
-         "Velg styrke under «Støyfilter-styrke». Starter ordene dine å bli kuttet i begynnelsen eller slutten, "
-         "velg «Lett» eller slå det av. Hører du fortsatt støy, velg «Sterk».\n"),
+         "Styrken justerer du med knappen «Støygrense» (høyere tall gir sterkere filter). Starter ordene dine å bli "
+         "kuttet i begynnelsen eller slutten, velg et lavere tall eller slå det av. Hører du fortsatt støy, velg et høyere.\n"),
     ("b", "Kompressor: "),
     ("", "jevner ut lydstyrken, så rolige ord ikke forsvinner og høye ord ikke blir for kraftige. "
          "Den er stilt middels kraftig og løfter volumet litt. Slå den av hvis du vil ha stemmen helt naturlig.\n"),
-    ("", "Begge kan slås av og på mens du sender.\n"),
+    ("", "Alle tre kan slås av og på mens du sender.\n"),
 
     ("h2", "Forsinkelse\n"),
-    ("", "Lyden går gjennom appen på noen få tideler av et sekund. «Minst» gir raskest lyd, "
+    ("", "Du finner valget i Avansert visning. Lyden går gjennom appen på noen få tideler av et sekund. «Minst» gir raskest lyd, "
          "men kan få lyden til å knitre på tregere PC-er. Knitrer det, velg «Lav», «Middels» eller «Mest». "
          "«Ekstra rask modus» kan gi enda raskere lyd hvis du har et lydkort eller en USB-mikrofon, "
          "men fungerer ikke alltid.\n"),
@@ -196,7 +209,7 @@ HELP_TEXT = [
     ("", "velg riktig mikrofon under «Din mikrofon», og sjekk at mikrofonen ikke er avslått i Windows.\n"),
     ("b", "Jeg hører meg selv med forsinkelse: "),
     ("", "bruk hodetelefoner, og slå av «Lytt til denne enheten» for mikrofonen i Windows' lydinnstillinger.\n"),
-    ("b", "Lyden knitrer: "), ("", "velg en høyere forsinkelse (Middels eller Mest) og lukk andre tunge programmer.\n"),
+    ("b", "Lyden knitrer: "), ("", "velg en høyere forsinkelse i Avansert visning (Middels eller Mest) og lukk andre tunge programmer.\n"),
     ("b", "Meldingen «Kunne ikke starte lyden»: "),
     ("", "prøv en annen mikrofon i listen, slå av «Ekstra rask modus», eller start appen på nytt.\n"),
 ]
@@ -321,17 +334,32 @@ KNOBS = [
     ("out_gain", "Volum ut", -24.0, 12.0, 0.0, ""),
 ]
 
+# knappene som vises i Enkel-visning
+SIMPLE_KEYS = ("in_gain", "room", "wet", "out_gain")
+
+# (key, label, min, max, default, formatering) - ekstra finjustering som bare vises i Avansert-visning
+ADV_KNOBS = [
+    ("lc_freq", "Kutt dype lyder", 40.0, 300.0, 90.0, lambda v: f"{v:.0f} Hz"),
+    ("gate_db", "Støygrense", -60.0, -25.0, -44.0, lambda v: f"{v:.0f} dB"),
+    ("comp_amt", "Jevn lyd", 0.0, 1.0, 0.6, lambda v: f"{v * 100:.0f} %"),
+    ("tone", "Lys / mørk", -1.0, 1.0, 0.0, lambda v: f"{v * 6:+.0f} dB"),
+    ("predelay", "Ekko-start", 0.0, 120.0, 0.0, lambda v: f"{v:.0f} ms"),
+]
+
 # vanlige fagbegreper som vises over knappene
 TERMS = {"in_gain": "INNGANG", "room": "ROMSTØRRELSE", "damping": "DEMPING", "wet": "REVERB",
-         "dry": "ORIGINAL", "width": "BREDDE", "out_gain": "UTGANG"}
+         "dry": "ORIGINAL", "width": "BREDDE", "out_gain": "UTGANG",
+         "lc_freq": "LAVKUTT", "gate_db": "STØYFILTER", "comp_amt": "KOMPRESSOR", "tone": "TONE",
+         "predelay": "PRE-DELAY"}
 
 
 class Knob(tk.Canvas):
     """Dra opp/ned for å endre, dobbeltklikk for standard, musehjul for finjustering."""
 
-    def __init__(self, master, label, lo, hi, default, unit, on_change, value=None, term=""):
+    def __init__(self, master, label, lo, hi, default, unit, on_change, value=None, term="", fmt=None):
         super().__init__(master, width=96, height=144, bg=PANEL, highlightthickness=0)
         self.term = term
+        self.fmt = fmt
         self.label, self.lo, self.hi, self.default, self.unit = label, lo, hi, default, unit
         self.on_change = on_change
         self.value = default if value is None else min(hi, max(lo, value))
@@ -415,19 +443,18 @@ class Knob(tk.Canvas):
         self.create_oval(cx + 20 * c - 2, cy - 20 * sn - 2, cx + 20 * c + 2, cy - 20 * sn + 2,
                          fill=ACCENT, outline="")
 
-        txt = f"{frac * 100:.0f} %"
+        txt = self.fmt(self.value) if self.fmt else f"{frac * 100:.0f} %"
         self.create_text(cx, 120, text=txt, fill=FG, font=("Segoe UI", 9, "bold"))
         self.create_text(cx, 135, text=self.label, fill=MUTED, font=("Segoe UI", 9))
         self.create_text(cx, 9, text=self.term, fill=GOLD, font=("Segoe UI", 7, "bold"))
 
 
 class Engine:
-    GATE_DB = {0: -52.0, 1: -44.0, 2: -36.0}  # støyfilter: lett, middels, sterk
     REVERB_STEP = 0.01  # største endring av romparametre per lydblokk, så det ikke klikker
 
     def __init__(self):
-        self.params = {k: d for k, _, _, _, d, _ in KNOBS}
-        self.params.update(bypass=False, lowcut=True, gate=True, gate_level=1, comp=True)
+        self.params = {k: d for k, _, _, _, d, _ in KNOBS + ADV_KNOBS}
+        self.params.update(bypass=False, lowcut=True, gate=True, comp=True)
         self.stream = None
         self.peak_in = 0.0
         self.peak_out = 0.0
@@ -442,12 +469,18 @@ class Engine:
         self.reverb = Reverb(room_size=p["room"], damping=p["damping"], wet_level=1.0,
                              dry_level=0.0, width=p["width"], freeze_mode=0.0)
         self.rev_board = Pedalboard([self.reverb])
-        self.lowcut = Pedalboard([HighpassFilter(cutoff_frequency_hz=90.0)])
-        self.gate_plugin = NoiseGate(threshold_db=self.GATE_DB[1], ratio=30.0, attack_ms=2.0, release_ms=150.0)
+        self.hp = HighpassFilter(cutoff_frequency_hz=p["lc_freq"])
+        self.lowcut = Pedalboard([self.hp])
+        self.gate_plugin = NoiseGate(threshold_db=p["gate_db"], ratio=30.0, attack_ms=2.0, release_ms=150.0)
         self.gate = Pedalboard([self.gate_plugin])
-        self._gate_db = self.GATE_DB[1]
-        self.comp = Pedalboard([Compressor(threshold_db=-26.0, ratio=4.0, attack_ms=6.0, release_ms=140.0),
-                                Gain(gain_db=4.0)])
+        self.comp_plugin = Compressor(threshold_db=-26.0, ratio=4.0, attack_ms=6.0, release_ms=140.0)
+        self.makeup = Gain(gain_db=4.0)
+        self.comp = Pedalboard([self.comp_plugin, self.makeup])
+        self.tone_plugin = HighShelfFilter(cutoff_frequency_hz=4000.0, gain_db=0.0, q=0.7)
+        self.tone_board = Pedalboard([self.tone_plugin])
+        self.pre_plugin = Delay(delay_seconds=0.0, feedback=0.0, mix=1.0)
+        self.pre_board = Pedalboard([self.pre_plugin])
+        self._applied = {}  # sist brukte verdier for plugin-parametre
         self.limiter = Pedalboard([Limiter(threshold_db=-1.0, release_ms=60.0)])
         self._cur.update(room=p["room"], damping=p["damping"], width=p["width"])
 
@@ -463,6 +496,24 @@ class Engine:
             return target
         return np.linspace(prev, target, frames, endpoint=False, dtype=np.float32)
 
+    def _apply_comp(self, amt):
+        self.comp_plugin.threshold_db = -16.0 - 16.0 * amt
+        self.comp_plugin.ratio = 2.0 + 3.3 * amt
+        self.makeup.gain_db = 6.0 * amt
+
+    def _sync_plugins(self):
+        """Overfører knappenes verdier til filtrene, bare når de er endret."""
+        p, applied = self.params, self._applied
+        for key, apply in (
+                ("lc_freq", lambda v: setattr(self.hp, "cutoff_frequency_hz", v)),
+                ("gate_db", lambda v: setattr(self.gate_plugin, "threshold_db", v)),
+                ("comp_amt", self._apply_comp),
+                ("tone", lambda v: setattr(self.tone_plugin, "gain_db", v * 6.0)),
+                ("predelay", lambda v: setattr(self.pre_plugin, "delay_seconds", v / 1000.0))):
+            if applied.get(key) != p[key]:
+                applied[key] = p[key]
+                apply(p[key])
+
     def _glide_reverb(self):
         for key, attr in (("room", "room_size"), ("damping", "damping"), ("width", "width")):
             target, cur = self.params[key], self._cur[key]
@@ -476,10 +527,7 @@ class Engine:
         x = indata[:, 0] * self._gain("in_gain", frames, True)
         self.peak_in = max(float(np.abs(x).max()), self.peak_in)
         sig = x.astype(np.float32)[np.newaxis, :]
-        gate_db = self.GATE_DB.get(p["gate_level"], -44.0)
-        if gate_db != self._gate_db:
-            self._gate_db = gate_db
-            self.gate_plugin.threshold_db = gate_db
+        self._sync_plugins()
         for key, board in (("lowcut", self.lowcut), ("gate", self.gate), ("comp", self.comp)):
             if p[key]:
                 if not self._was_on[key]:
@@ -491,8 +539,11 @@ class Engine:
             y = stereo
         else:
             self._glide_reverb()
-            wet = self.rev_board.process(stereo, sr, reset=False)
+            wet_in = stereo if p["predelay"] < 0.5 else self.pre_board.process(stereo, sr, reset=False)
+            wet = self.rev_board.process(wet_in, sr, reset=False)
             y = wet * self._gain("wet", frames, False) + stereo * self._gain("dry", frames, False)
+        if abs(p["tone"]) > 0.02:
+            y = self.tone_board.process(y.astype(np.float32), sr, reset=False)
         y = y * self._gain("out_gain", frames, True)
         y = self.limiter.process(y.astype(np.float32), sr, reset=False)
         y = np.clip(y, -1.0, 1.0)
@@ -683,11 +734,11 @@ class App(tk.Tk):
             return {}
 
     def _save(self):
-        data = {k: self.engine.params[k] for k, *_ in KNOBS}
+        data = {k: self.engine.params[k] for k, *_ in KNOBS + ADV_KNOBS}
         data.update(in_dev=self.in_var.get(), out_dev=self.out_var.get(), block=self.block_var.get(),
                     exclusive=self.mon_var.get(), lowcut=self.engine.params["lowcut"],
                     comp=self.engine.params["comp"], gate=self.engine.params["gate"],
-                    gate_level=self.engine.params["gate_level"])
+                    mode=self.mode)
         try:
             os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
             with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
@@ -698,20 +749,67 @@ class App(tk.Tk):
     def _build_ui(self):
         tk.Label(self, text="TheTomStock_Reverb", bg=BG, fg=FG, font=("Segoe UI", 16, "bold")).grid(
             row=0, column=0, sticky="w", padx=16, pady=(14, 0))
-        tk.Label(self, text="Dra knappene opp og ned for å endre. Dobbeltklikk på en knapp for å nullstille.",
-                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", padx=16)
+        head = tk.Frame(self, bg=BG)
+        head.grid(row=1, column=0, sticky="we", padx=16)
+        tk.Label(head, text="Dra knappene opp og ned for å endre. Dobbeltklikk på en knapp for å nullstille.",
+                 bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
+        sw = tk.Frame(head, bg=BG)
+        sw.pack(side="right")
+        tk.Label(sw, text="Visning", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(0, 6))
+        self.mode = self.saved.get("mode", "enkel")
+        if self.mode not in ("enkel", "avansert"):
+            self.mode = "enkel"
+        self.mode_btns = {}
+        for m, text in (("enkel", "Enkel"), ("avansert", "Avansert")):
+            btn = tk.Button(sw, text=text, width=9, relief="flat", bg="#050505", highlightthickness=2, bd=0,
+                            activebackground="#1a0000", cursor="hand2", command=lambda m=m: self._set_mode(m))
+            btn.pack(side="left", padx=2)
+            self.mode_btns[m] = btn
 
+        self.block_var = tk.IntVar(value=max(64, self.saved.get("block", 128)))
+        self.mon_var = tk.BooleanVar(value=self.saved.get("exclusive", False))
         box = RoundBox(self)
         box.grid(row=2, column=0, padx=16, pady=12)
-        knobs = box.inner
+        inner = box.inner
+        self.row0 = tk.Frame(inner, bg=PANEL)
+        self.row0.grid(row=0, column=0)
+        self.adv_frame = tk.Frame(inner, bg=PANEL)
+        self.adv_frame.grid(row=1, column=0, sticky="we")
+        tk.Frame(self.adv_frame, bg=GOLD_DIM, height=1).pack(fill="x", padx=14, pady=(2, 4))
+        tk.Label(self.adv_frame, text="AVANSERT  ·  finjustering", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 7, "bold")).pack()
+        self.row1 = tk.Frame(self.adv_frame, bg=PANEL)
+        self.row1.pack()
+
+        perf = tk.Frame(self.adv_frame, bg=PANEL)
+        perf.pack(fill="x", padx=18, pady=(2, 10))
+        line = tk.Frame(perf, bg=PANEL)
+        line.pack(anchor="w")
+        tk.Label(line, text="Forsinkelse", bg=PANEL, fg=MUTED).pack(side="left", padx=(0, 6))
+        for text, b in (("Minst", 64), ("Lav", 128), ("Middels", 256), ("Mest", 512)):
+            tk.Radiobutton(line, text=text, value=b, variable=self.block_var, bg=PANEL, fg=FG, selectcolor=BG,
+                           activebackground=PANEL, activeforeground=FG, command=self._start).pack(side="left")
+        tk.Label(line, text="  (knitrer lyden, velg en høyere)", bg=PANEL, fg=MUTED,
+                 font=("Segoe UI", 8)).pack(side="left")
+        tk.Checkbutton(perf, text="Ekstra rask modus (kan feile hvis et annet program bruker mikrofonen)",
+                       variable=self.mon_var, bg=PANEL, fg=FG, selectcolor=BG, activebackground=PANEL,
+                       activeforeground=FG, command=self._start).pack(anchor="w")
+
         self.knobs = {}
-        for i, (key, label, lo, hi, default, unit) in enumerate(KNOBS):
+        legacy_gate = {0: -52.0, 1: -44.0, 2: -36.0}.get(self.saved.get("gate_level", 1), -44.0)
+        for key, label, lo, hi, default, unit in KNOBS:
             val = self.saved.get(key, default)
             self.engine.update(key, val)
-            k = Knob(knobs, label, lo, hi, default, unit, lambda v, key=key: self.engine.update(key, v), value=val,
-                     term=TERMS[key])
-            k.grid(row=0, column=i, padx=4, pady=6)
-            self.knobs[key] = k
+            self.knobs[key] = Knob(self.row0, label, lo, hi, default, unit,
+                                   lambda v, key=key: self.engine.update(key, v), value=val, term=TERMS[key])
+        for key, label, lo, hi, default, fmt in ADV_KNOBS:
+            val = self.saved.get(key, legacy_gate if key == "gate_db" else default)
+            self.engine.update(key, val)
+            self.knobs[key] = Knob(self.row1, label, lo, hi, default, "",
+                                   lambda v, key=key: self.engine.update(key, v), value=val, term=TERMS[key], fmt=fmt)
+        # PÅ/AV rett under knappen den hører til
+        self.toggles = [self._toggle_button(self.row1, key) for key in ("lowcut", "gate", "comp")]
+        self._set_mode(self.mode)
 
         meters = tk.Frame(self, bg=BG)
         meters.grid(row=3, column=0, sticky="we", padx=16)
@@ -730,43 +828,8 @@ class App(tk.Tk):
                                    else self._default(in_names, ("Mikrofon", "Microphone")))
         self.out_var = tk.StringVar(value=self.saved.get("out_dev") if self.saved.get("out_dev") in out_names
                                     else (cable or out_names[0]))
-        self.block_var = tk.IntVar(value=max(64, self.saved.get("block", 128)))
-        self.mon_var = tk.BooleanVar(value=self.saved.get("exclusive", False))
         self.in_cb = self._row(dev, 0, "Din mikrofon", self.in_var, in_names)
         self.out_cb = self._row(dev, 1, "Send lyden til", self.out_var, out_names)
-        tk.Label(dev, text="Forsinkelse", bg=BG, fg=MUTED).grid(row=2, column=0, sticky="w", pady=4)
-        bf = tk.Frame(dev, bg=BG)
-        bf.grid(row=2, column=1, sticky="w")
-        for text, b in (("Minst", 64), ("Lav", 128), ("Middels", 256), ("Mest", 512)):
-            tk.Radiobutton(bf, text=text, value=b, variable=self.block_var, bg=BG, fg=FG, selectcolor=PANEL,
-                           activebackground=BG, activeforeground=FG, command=self._start).pack(side="left")
-        tk.Label(bf, text="  (hvis lyden knitrer, velg en høyere)", bg=BG, fg=MUTED,
-                 font=("Segoe UI", 8)).pack(side="left")
-
-        tk.Checkbutton(dev, text="Ekstra rask modus (kan feile hvis et annet program bruker mikrofonen)", variable=self.mon_var,
-                       bg=BG, fg=FG, selectcolor=PANEL, activebackground=BG, activeforeground=FG,
-                       command=self._start).grid(row=3, column=0, columnspan=2, sticky="w")
-
-        fx = tk.Frame(dev, bg=BG)
-        fx.grid(row=4, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        top = tk.Frame(fx, bg=BG)
-        top.pack(side="top", anchor="w")
-        self.lowcut_btn = self._toggle_button(top, "lowcut", "Lavkutt")
-        self.gate_btn = self._toggle_button(top, "gate", "Støyfilter")
-        self.comp_btn = self._toggle_button(top, "comp", "Kompressor")
-        mid = tk.Frame(fx, bg=BG)
-        mid.pack(side="top", anchor="w", pady=(4, 0))
-        tk.Label(mid, text="Støyfilter-styrke", bg=BG, fg=MUTED).pack(side="left")
-        self.engine.params["gate_level"] = int(self.saved.get("gate_level", 1))
-        self.gate_var = tk.IntVar(value=self.engine.params["gate_level"])
-        for text, v in (("Lett", 0), ("Middels", 1), ("Sterk", 2)):
-            tk.Radiobutton(mid, text=text, value=v, variable=self.gate_var, bg=BG, fg=FG, selectcolor=PANEL,
-                           activebackground=BG, activeforeground=FG,
-                           command=lambda: self.engine.params.update(gate_level=self.gate_var.get())).pack(side="left")
-        tk.Label(fx, text="Lavkutt fjerner buldring. Støyfilter demper bakgrunnsstøy når du er stille. "
-                          "Kompressor jevner ut lydstyrken.", bg=BG, fg=MUTED, font=("Segoe UI", 8)).pack(
-            side="top", anchor="w", pady=(4, 0))
-
         bottom = tk.Frame(self, bg=BG)
         bottom.grid(row=5, column=0, sticky="we", padx=16, pady=12)
         self.bypass_btn = tk.Button(bottom, text="Ekko: PÅ", width=12, bg="#050505", fg=HOT, relief="flat", highlightthickness=2, highlightbackground=ACCENT,
@@ -887,14 +950,35 @@ class App(tk.Tk):
         parent.columnconfigure(1, weight=1)
         return cb
 
-    def _toggle_button(self, parent, key, name):
+    def _set_mode(self, mode):
+        self.mode = mode
+        for m, btn in self.mode_btns.items():
+            on = m == mode
+            btn.config(fg=HOT if on else MUTED, highlightbackground=ACCENT if on else GOLD_DIM)
+        for knob in self.knobs.values():
+            knob.grid_forget()
+        advanced = mode == "avansert"
+        main = [k for k, *_ in KNOBS if advanced or k in SIMPLE_KEYS]
+        pad = 4 if advanced else 43
+        for i, key in enumerate(main):
+            self.knobs[key].grid(row=0, column=i, padx=pad, pady=6)
+        for i, (key, *_) in enumerate(ADV_KNOBS):
+            self.knobs[key].grid(row=0, column=i, padx=22, pady=(2, 0))
+        for i, btn in enumerate(self.toggles):
+            btn.grid(row=1, column=i, pady=(0, 8))
+        if advanced:
+            self.adv_frame.grid()
+        else:
+            self.adv_frame.grid_remove()
+
+    def _toggle_button(self, parent, key):
         self.engine.params[key] = bool(self.saved.get(key, True))
-        btn = tk.Button(parent, width=15, bg="#050505", relief="flat", highlightthickness=2,
+        btn = tk.Button(parent, width=8, bg="#050505", relief="flat", highlightthickness=2,
                         activebackground="#1a0000", cursor="hand2")
 
         def refresh():
             on = self.engine.params[key]
-            btn.config(text=f"{name}: {'PÅ' if on else 'AV'}", fg=HOT if on else MUTED,
+            btn.config(text="PÅ" if on else "AV", fg=HOT if on else MUTED,
                        highlightbackground=ACCENT if on else GOLD_DIM)
 
         def toggle():
@@ -903,7 +987,6 @@ class App(tk.Tk):
 
         btn.config(command=toggle)
         refresh()
-        btn.pack(side="left", padx=(0, 8))
         return btn
 
     def _toggle_bypass(self):
@@ -929,7 +1012,7 @@ class App(tk.Tk):
         lat = self.engine.latency_ms()
         if self.engine.error:
             self.status.config(text="Kunne ikke starte lyden. Sjekk at riktig mikrofon er valgt, "
-                               "eller velg høyere forsinkelse.", fg="#ff6b6b", wraplength=420)
+                               "eller velg høyere forsinkelse (i Avansert visning).", fg="#ff6b6b", wraplength=420)
         elif lat is not None:
             self.status.config(text=f"Alt kjører · forsinkelse ca. {lat:.0f} ms", fg=MUTED, wraplength=0)
         self.after(33, self._tick)
