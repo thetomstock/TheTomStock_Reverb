@@ -5,8 +5,11 @@ Mikrofon -> forsterkning -> reverb -> begrenser -> utgang (f.eks. VB-Cable).
 import json
 import math
 import os
+import re
 import sys
+import threading
 import tkinter as tk
+import urllib.request
 import webbrowser
 from tkinter import ttk
 
@@ -15,6 +18,8 @@ import sounddevice as sd
 from pedalboard import Compressor, Gain, HighpassFilter, Limiter, NoiseGate, Pedalboard, Reverb
 
 APP_NAME = "TheTomStock_Reverb"
+APP_VERSION = "1.0.3"
+REPO = "thetomstock/TheTomStock_Reverb"
 CABLE_URL = "https://vb-audio.com/Cable/"
 SETTINGS_PATH = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), APP_NAME, "settings.json")
 
@@ -26,6 +31,10 @@ ACCENT = "#ff1f1f"
 GOLD = "#d4af37"
 GOLD_DIM = "#4a3d15"
 HOT = "#ff7d8a"
+
+
+def version_tuple(text):
+    return tuple(int(x) for x in re.findall(r"\d+", text)[:3])
 
 
 def resource_path(name):
@@ -43,6 +52,7 @@ def mix(c1, c2, t):
 # (stil, tekst) - vises i hjelpevinduet
 HELP_TEXT = [
     ("h1", "Slik bruker du TheTomStock_Reverb\n"),
+    ("", f"Versjon {APP_VERSION}. Appen sjekker selv om det finnes en nyere versjon når den åpnes, og viser en gul melding øverst til høyre hvis det gjør det.\n"),
     ("", "Appen gir stemmen din ekko, som når du snakker i et stort rom eller en kirke. "
          "Det skjer mens du sender live, og seerne hører stemmen din med effekten.\n"),
 
@@ -466,8 +476,38 @@ class App(tk.Tk):
         self._build_ui()
         self.after(33, self._tick)
         self.after(50, self._dwm)
+        self._update_found = None
+        self._update_shown = False
+        threading.Thread(target=self._check_update, daemon=True).start()
         self.protocol("WM_DELETE_WINDOW", self._close)
         self._start()
+
+    def _check_update(self):
+        """Spør GitHub om siste utgivelse. Feiler stille hvis du er uten nett."""
+        try:
+            req = urllib.request.Request(
+                f"https://api.github.com/repos/{REPO}/releases/latest",
+                headers={"User-Agent": "TheTomStock_Reverb", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = json.load(resp)
+            tag = data["tag_name"]
+            url = data.get("html_url", "")
+            if not url.startswith(f"https://github.com/{REPO}/"):
+                url = f"https://github.com/{REPO}/releases/latest"
+            if version_tuple(tag) > version_tuple(APP_VERSION):
+                self._update_found = (tag, url)
+        except Exception:  # noqa: BLE001 - ingen nett eller GitHub nede, ikke et problem
+            pass
+
+    def _show_update(self):
+        tag, url = self._update_found
+        box = tk.Frame(self, bg="#140f00", highlightbackground=GOLD, highlightcolor=GOLD, highlightthickness=1)
+        tk.Label(box, text=f"Ny versjon er klar: {tag}", bg="#140f00", fg=GOLD,
+                 font=("Segoe UI", 9, "bold")).pack(side="left", padx=(10, 8), pady=6)
+        tk.Button(box, text="Last ned", bg="#050505", fg=HOT, relief="flat", highlightthickness=2,
+                  highlightbackground=ACCENT, activebackground="#1a0000", cursor="hand2",
+                  command=lambda: webbrowser.open(url)).pack(side="left", padx=(0, 8), pady=4)
+        box.place(relx=1.0, x=-18, y=16, anchor="ne")
 
     def _dwm(self, win=None):
         """Runde hjørner og gull ramme fra Windows 11 (ignoreres stille på eldre Windows)."""
@@ -740,6 +780,9 @@ class App(tk.Tk):
         self.engine.start(in_dev, out_dev, self.block_var.get(), self.mon_var.get())
 
     def _tick(self):
+        if self._update_found and not self._update_shown:
+            self._update_shown = True
+            self._show_update()
         pin, pout = self.engine.peak_in, self.engine.peak_out
         self.engine.peak_in = self.engine.peak_out = 0.0
         self.meter_in.feed(pin)
