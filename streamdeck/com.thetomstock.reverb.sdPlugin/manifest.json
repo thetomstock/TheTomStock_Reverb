@@ -1,0 +1,82 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "SDKVersion": 2,
+  "Name": "TheTomStock Reverb",
+  "Version": "1.0.0.0",
+  "Author": "thetomstock",
+  "Description": "Styr TheTomStock_Reverb fra Stream Deck: skru på knappene, slå funksjoner av og på, og lagre egne lydoppsett på taster.",
+  "URL": "https://github.com/thetomstock/TheTomStock_Reverb",
+  "UUID": "com.thetomstock.reverb",
+  "Icon": "imgs/plugin-icon",
+  "Category": "TheTomStock Reverb",
+  "CategoryIcon": "imgs/category-icon",
+  "CodePath": "bin/plugin.js",
+  "Nodejs": {
+    "Version": "20"
+  },
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "Software": {
+    "MinimumVersion": "6.4"
+  },
+  "Actions": [
+    {
+      "Name": "Knapp",
+      "UUID": "com.thetomstock.reverb.knob",
+      "Icon": "imgs/actions/knob",
+      "Tooltip": "Skru en knapp opp eller ned, eller sett den til en bestemt verdi. På Stream Deck + styrer dreieknappen den direkte.",
+      "PropertyInspectorPath": "pi/knob.html",
+      "Controllers": ["Keypad", "Encoder"],
+      "States": [
+        {
+          "Image": "imgs/actions/knob-key",
+          "TitleAlignment": "bottom",
+          "ShowTitle": false
+        }
+      ],
+      "Encoder": {
+        "layout": "$B1",
+        "Icon": "imgs/actions/knob",
+        "TriggerDescription": {
+          "Rotate": "Skru knappen",
+          "Push": "Nullstill",
+          "Touch": "Nullstill"
+        }
+      }
+    },
+    {
+      "Name": "Av/på",
+      "UUID": "com.thetomstock.reverb.toggle",
+      "Icon": "imgs/actions/toggle",
+      "Tooltip": "Slå ekko, støyfilter, kompressor, lavkutt eller «hør meg selv» av og på.",
+      "PropertyInspectorPath": "pi/toggle.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "imgs/actions/toggle-key",
+          "TitleAlignment": "bottom",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Lydoppsett",
+      "UUID": "com.thetomstock.reverb.preset",
+      "Icon": "imgs/actions/preset",
+      "Tooltip": "Setter flere knapper og brytere på en gang, for eksempel «Stor hall» eller «Tørr stemme».",
+      "PropertyInspectorPath": "pi/preset.html",
+      "Controllers": ["Keypad"],
+      "States": [
+        {
+          "Image": "imgs/actions/preset-key",
+          "TitleAlignment": "bottom",
+          "ShowTitle": false
+        }
+      ]
+    }
+  ]
+}

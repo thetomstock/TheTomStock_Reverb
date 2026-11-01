@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <title>Lydoppsett</title>
+  <link rel="stylesheet" href="pi.css">
+</head>
+<body>
+  <div class="row"><label for="name">Navn på tasten</label><input type="text" id="name" data-key="name" maxlength="24"></div>
+  <button id="capture">Bruk lyden som står i appen nå</button>
+  <div class="hint">Still inn lyden i appen først, og trykk knappen. Ellers kan du krysse av og stille inn under.</div>
+  <h3>Knapper</h3>
+  <div id="knobs"></div>
+  <h3>Brytere</h3>
+  <div id="toggles"></div>
+  <div class="hint">Knapper uten kryss og brytere satt til «Uendret» blir ikke rørt.</div>
+  <script src="pi.js"></script>
+  <script>
+    window.page = {
+      init() {
+        settings.values = settings.values || {};
+        settings.toggles = settings.toggles || {};
+        const name = document.getElementById("name");
+        name.value = settings.name !== undefined ? settings.name : "Lydoppsett";
+        name.addEventListener("input", () => { settings.name = name.value; save(); });
+
+        const knobs = document.getElementById("knobs");
+        for (const [key, label] of KNOBS) {
+          const row = document.createElement("div");
+          row.className = "knobrow";
+          row.innerHTML = '<input type="checkbox"><span class="name"></span><input type="range" min="0" max="100" step="1"><span class="val"></span>';
+          row.querySelector(".name").textContent = label;
+          const box = row.querySelector("input[type=checkbox]");
+          const range = row.querySelector("input[type=range]");
+          const out = row.querySelector(".val");
+          const has = typeof settings.values[key] === "number";
+          box.checked = has;
+          range.value = has ? settings.values[key] : 50;
+          range.disabled = !has;
+          out.textContent = range.value + " %";
+          const apply = () => {
+            range.disabled = !box.checked;
+            out.textContent = range.value + " %";
+            if (box.checked) settings.values[key] = Number(range.value);
+            else delete settings.values[key];
+            save();
+          };
+          box.addEventListener("change", apply);
+          range.addEventListener("input", apply);
+          row.dataset.key = key;
+          knobs.appendChild(row);
+        }
+
+        const toggles = document.getElementById("toggles");
+        for (const [key, label] of TOGGLES) {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = '<label></label><select><option value="">Uendret</option><option value="on">På</option><option value="off">Av</option></select>';
+          row.querySelector("label").textContent = label;
+          const select = row.querySelector("select");
+          select.value = settings.toggles[key] || "";
+          select.addEventListener("change", () => {
+            if (select.value) settings.toggles[key] = select.value;
+            else delete settings.toggles[key];
+            save();
+          });
+          row.dataset.key = key;
+          toggles.appendChild(row);
+        }
+
+        document.getElementById("capture").addEventListener("click", () => sendToPlugin({ cmd: "capture" }));
+      },
+      message(payload) {
+        // appens gjeldende lyd kommer tilbake fra pluginet
+        settings.values = {};
+        settings.toggles = {};
+        for (const [key] of KNOBS) {
+          if (typeof payload.values[key] === "number") settings.values[key] = payload.values[key];
+        }
+        for (const [key] of TOGGLES) {
+          if (typeof payload.toggles[key] === "boolean") settings.toggles[key] = payload.toggles[key] ? "on" : "off";
+        }
+        save();
+        document.querySelectorAll("#knobs .knobrow").forEach((row) => {
+          const v = settings.values[row.dataset.key];
+          const box = row.querySelector("input[type=checkbox]");
+          const range = row.querySelector("input[type=range]");
+          box.checked = typeof v === "number";
+          range.disabled = !box.checked;
+          if (box.checked) range.value = v;
+          row.querySelector(".val").textContent = range.value + " %";
+        });
+        document.querySelectorAll("#toggles .row").forEach((row) => {
+          row.querySelector("select").value = settings.toggles[row.dataset.key] || "";
+        });
+      },
+    };
+  </script>
+</body>
+</html>

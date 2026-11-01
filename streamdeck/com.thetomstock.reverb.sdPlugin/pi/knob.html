@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <title>Knapp</title>
+  <link rel="stylesheet" href="pi.css">
+</head>
+<body>
+  <div class="row"><label for="knob">Knapp</label><select id="knob" data-key="knob"></select></div>
+  <div class="row">
+    <label for="keyAction">Når tasten trykkes</label>
+    <select id="keyAction" data-key="keyAction">
+      <option value="up">Skru opp</option>
+      <option value="down">Skru ned</option>
+      <option value="set">Sett til en verdi</option>
+      <option value="reset">Nullstill (standard)</option>
+    </select>
+  </div>
+  <div class="row" id="amountRow">
+    <label for="amount">Steg per trykk</label>
+    <input type="number" id="amount" data-key="amount" min="1" max="50" step="1">
+  </div>
+  <div class="hint" id="amountHint">Ett steg er 2 % av skalaen, som ett klikk med musehjulet. Hold tasten inne for å skru videre.</div>
+  <div class="row" id="setRow">
+    <label for="setPct">Sett til</label>
+    <input type="range" id="setPct" data-key="setPct" min="0" max="100" step="1">
+    <span class="val" id="setPctVal"></span>
+  </div>
+  <hr>
+  <h3>Dreieknapp (Stream Deck +)</h3>
+  <div class="row">
+    <label for="dialSteps">Steg per klikk</label>
+    <input type="number" id="dialSteps" data-key="dialSteps" min="1" max="20" step="1">
+  </div>
+  <div class="hint">Trykk på dreieknappen eller berør skjermen for å nullstille knappen.</div>
+  <script src="pi.js"></script>
+  <script>
+    window.page = {
+      init() {
+        fillSelect(document.getElementById("knob"), KNOBS);
+        bindFields({ knob: "wet", keyAction: "up", amount: 5, setPct: 50, dialSteps: 1 });
+        this.changed();
+      },
+      changed() {
+        const a = document.getElementById("keyAction").value;
+        const stepping = a === "up" || a === "down";
+        document.getElementById("amountRow").style.display = stepping ? "" : "none";
+        document.getElementById("amountHint").style.display = stepping ? "" : "none";
+        document.getElementById("setRow").style.display = a === "set" ? "" : "none";
+      },
+    };
+  </script>
+</body>
+</html>

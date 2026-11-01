@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <title>Av/på</title>
+  <link rel="stylesheet" href="pi.css">
+</head>
+<body>
+  <div class="row"><label for="name">Funksjon</label><select id="name" data-key="name"></select></div>
+  <div class="row">
+    <label for="mode">Når tasten trykkes</label>
+    <select id="mode" data-key="mode">
+      <option value="toggle">Bytt (av/på)</option>
+      <option value="on">Slå på</option>
+      <option value="off">Slå av</option>
+    </select>
+  </div>
+  <div class="hint">Tasten viser om funksjonen er på akkurat nå.</div>
+  <script src="pi.js"></script>
+  <script>
+    window.page = {
+      init() {
+        fillSelect(document.getElementById("name"), TOGGLES);
+        bindFields({ name: "echo", mode: "toggle" });
+      },
+    };
+  </script>
+</body>
+</html>
