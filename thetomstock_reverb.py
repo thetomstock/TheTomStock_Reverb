@@ -25,7 +25,7 @@ from pedalboard import (Compressor, Delay, Gain, HighpassFilter, HighShelfFilter
 from control_server import ControlServer
 
 APP_NAME = "TheTomStock_Reverb"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 REPO = "thetomstock/TheTomStock_Reverb"
 EXE_NAME = "TheTomStock_Reverb.exe"
 CABLE_URL = "https://vb-audio.com/Cable/"
@@ -1232,7 +1232,7 @@ class App(tk.Tk):
     def control_toggle(self, name, on=None):
         """Brukes av kontrollporten. on=None bytter til motsatt."""
         if name == "echo":
-            self._set_echo(not self.engine.params["bypass"] if on is None else on)
+            self._set_echo(self.engine.params["bypass"] if on is None else on)
         elif name == "monitor":
             self._set_monitor(not self.engine.params["monitor"] if on is None else on)
         elif name == "exclusive":
