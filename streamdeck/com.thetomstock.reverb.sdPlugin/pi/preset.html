@@ -13,7 +13,9 @@
   <div id="knobs"></div>
   <h3>Brytere</h3>
   <div id="toggles"></div>
-  <div class="hint">Knapper uten kryss og brytere satt til «Uendret» blir ikke rørt.</div>
+  <h3>Valg</h3>
+  <div id="choices"></div>
+  <div class="hint">Knapper uten kryss og brytere eller valg satt til «Uendret» blir ikke rørt.</div>
   <script src="pi.js"></script>
   <script>
     window.page = {
@@ -68,6 +70,26 @@
           toggles.appendChild(row);
         }
 
+        settings.choices = settings.choices || {};
+        const choices = document.getElementById("choices");
+        for (const [key, label, opts] of CHOICES) {
+          if (!opts) continue; // enheter lagres ikke i lydoppsett
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = '<label></label><select><option value="">Uendret</option></select>';
+          row.querySelector("label").textContent = label;
+          const select = row.querySelector("select");
+          fillSelect(select, opts);
+          select.value = settings.choices[key] || "";
+          select.addEventListener("change", () => {
+            if (select.value) settings.choices[key] = select.value;
+            else delete settings.choices[key];
+            save();
+          });
+          row.dataset.key = key;
+          choices.appendChild(row);
+        }
+
         document.getElementById("capture").addEventListener("click", () => sendToPlugin({ cmd: "capture" }));
       },
       message(payload) {
@@ -80,7 +102,14 @@
         for (const [key] of TOGGLES) {
           if (typeof payload.toggles[key] === "boolean") settings.toggles[key] = payload.toggles[key] ? "on" : "off";
         }
+        settings.choices = {};
+        for (const [key, , opts] of CHOICES) {
+          if (opts && payload.choices && payload.choices[key] !== undefined) settings.choices[key] = payload.choices[key];
+        }
         save();
+        document.querySelectorAll("#choices .row").forEach((row) => {
+          row.querySelector("select").value = settings.choices[row.dataset.key] || "";
+        });
         document.querySelectorAll("#knobs .knobrow").forEach((row) => {
           const v = settings.values[row.dataset.key];
           const box = row.querySelector("input[type=checkbox]");

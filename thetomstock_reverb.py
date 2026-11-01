@@ -1,4 +1,4 @@
-﻿"""TheTomStock_Reverb - sanntids reverb for mikrofon, med skrueknapper.
+"""TheTomStock_Reverb - sanntids reverb for mikrofon, med skrueknapper.
 
 Mikrofon -> forsterkning -> reverb -> begrenser -> utgang (f.eks. VB-Cable).
 """
@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -77,8 +78,8 @@ def download_update(url, dest, expected_sha, progress):
 
 
 def write_swap_script(new_path, target, pid, script_path):
-    """Lager et lite skript som venter til appen er lukket, bytter filen og starter den pÃ¥ nytt.
-    GÃ¥r noe galt, starter den gamle versjonen igjen."""
+    """Lager et lite skript som venter til appen er lukket, bytter filen og starter den på nytt.
+    Går noe galt, starter den gamle versjonen igjen."""
     text = f"""@echo off
 chcp 65001 >nul
 set /a n=0
@@ -116,16 +117,48 @@ start "" "{target}"
 def launch_swap_script(script_path):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("_MEIPASS", "_PYI"))}
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
-    # Bare CREATE_NO_WINDOW: med DETACHED_PROCESS i tillegg Ã¥pner hver kommando i skriptet et synlig konsollvindu
+    # Bare CREATE_NO_WINDOW: med DETACHED_PROCESS i tillegg åpner hver kommando i skriptet et synlig konsollvindu
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(["cmd.exe", "/c", script_path], env=env, creationflags=flags, close_fds=True,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def resource_path(name):
-    """Finner filer bÃ¥de nÃ¥r appen kjÃ¸res som skript og som ferdig .exe."""
+    """Finner filer både når appen kjøres som skript og som ferdig .exe."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, name)
+
+
+PLUGIN_DIR = "com.thetomstock.reverb.sdPlugin"
+
+
+def _folder_hash(root):
+    h = hashlib.sha256()
+    for folder, _, files in sorted(os.walk(root)):
+        for name in sorted(files):
+            path = os.path.join(folder, name)
+            h.update(os.path.relpath(path, root).replace(os.sep, "/").encode("utf-8"))
+            with open(path, "rb") as f:
+                h.update(f.read())
+    return h.digest()
+
+
+def install_streamdeck_plugin():
+    """Legger Stream Deck-pluginet inn hvis Stream Deck er installert og pluginet mangler eller er endret.
+
+    Returnerer True når noe ble kopiert. Stream Deck leser nye plugins først når programmet startes på nytt."""
+    plugins = os.path.join(os.environ.get("APPDATA", ""), "Elgato", "StreamDeck", "Plugins")
+    src = resource_path(os.path.join("streamdeck", PLUGIN_DIR))
+    dest = os.path.join(plugins, PLUGIN_DIR)
+    if not os.path.isdir(plugins) or not os.path.isdir(src):
+        return False
+    try:
+        if os.path.isdir(dest) and _folder_hash(dest) == _folder_hash(src):
+            return False
+        shutil.copytree(src, dest, dirs_exist_ok=True)
+        return True
+    except OSError:
+        return False
 
 
 def mix(c1, c2, t):
@@ -137,102 +170,102 @@ def mix(c1, c2, t):
 # (stil, tekst) - vises i hjelpevinduet
 HELP_TEXT = [
     ("h1", "Slik bruker du TheTomStock_Reverb\n"),
-    ("", f"Versjon {APP_VERSION}. Appen sjekker selv om det finnes en nyere versjon nÃ¥r den Ã¥pnes, og viser en gul melding Ã¸verst til hÃ¸yre hvis det gjÃ¸r det. "
-         "Trykk Â«Oppdater nÃ¥Â», sÃ¥ laster appen ned den nye versjonen, kontrollerer at filen er riktig, "
-         "starter pÃ¥ nytt og beholder innstillingene dine.\n"),
-    ("", "Appen gir stemmen din ekko, som nÃ¥r du snakker i et stort rom eller en kirke. "
-         "Det skjer mens du sender live, og seerne hÃ¸rer stemmen din med effekten.\n"),
+    ("", f"Versjon {APP_VERSION}. Appen sjekker selv om det finnes en nyere versjon når den åpnes, og viser en gul melding øverst til høyre hvis det gjør det. "
+         "Trykk «Oppdater nå», så laster appen ned den nye versjonen, kontrollerer at filen er riktig, "
+         "starter på nytt og beholder innstillingene dine.\n"),
+    ("", "Appen gir stemmen din ekko, som når du snakker i et stort rom eller en kirke. "
+         "Det skjer mens du sender live, og seerne hører stemmen din med effekten.\n"),
 
-    ("h2", "Kom i gang (gjÃ¸res bare fÃ¸rste gang)\n"),
+    ("h2", "Kom i gang (gjøres bare første gang)\n"),
     ("b", "1.  Installer VB-Cable. "),
     ("", "Det er et lite gratis program som sender lyden fra denne appen til TikTok. Last det ned her: "),
     ("link", "vb-audio.com/Cable"),
-    ("", ". Pakk ut filen, hÃ¸yreklikk pÃ¥ Â«VBCABLE_Setup_x64Â» og velg Â«KjÃ¸r som administratorÂ». "
-         "Start sÃ¥ PC-en pÃ¥ nytt.\n"),
-    ("b", "2.  Ã…pne TheTomStock_Reverb igjen. "),
-    ("", "Teksten nederst skal bli grÃ¸nn og si Â«Klar!Â». Hvis ikke, trykk Â«Sjekk pÃ¥ nyttÂ».\n"),
+    ("", ". Pakk ut filen, høyreklikk på «VBCABLE_Setup_x64» og velg «Kjør som administrator». "
+         "Start så PC-en på nytt.\n"),
+    ("b", "2.  Åpne TheTomStock_Reverb igjen. "),
+    ("", "Teksten nederst skal bli grønn og si «Klar!». Hvis ikke, trykk «Sjekk på nytt».\n"),
     ("b", "3.  Velg mikrofonen din "),
-    ("", "under Â«Din mikrofonÂ». Ved Â«Send lyden tilÂ» skal det stÃ¥ Â«CABLE InputÂ». Det velges vanligvis av seg selv.\n"),
-    ("b", "4.  Ã…pne TikTok LIVE Studio "),
-    ("", "og gÃ¥ til lydinnstillingene. Velg Â«CABLE OutputÂ» som mikrofon. Da er du klar til Ã¥ sende!\n"),
+    ("", "under «Din mikrofon». Ved «Send lyden til» skal det stå «CABLE Input». Det velges vanligvis av seg selv.\n"),
+    ("b", "4.  Åpne TikTok LIVE Studio "),
+    ("", "og gå til lydinnstillingene. Velg «CABLE Output» som mikrofon. Da er du klar til å sende!\n"),
 
     ("h2", "Tips mens du sender\n"),
-    ("", "â€¢  Bruk hodetelefoner. Da slipper du at hÃ¸yttalerne lager ekko eller hyl.\n"
-         "â€¢  Si noe og se pÃ¥ mÃ¥leren Â«LYD INNÂ». NÃ¥len skal gÃ¥ ca. halvveis opp. "
-         "Hvis den ofte gÃ¥r inn i det rÃ¸de og lampen Â«PEAKÂ» lyser, skru ned knappen Â«MikrofonÂ».\n"
-         "â€¢  Knappen Â«Ekko: PÃ…/AVÂ» slÃ¥r ekkoet av og pÃ¥ uten Ã¥ stoppe lyden.\n"),
+    ("", "•  Bruk hodetelefoner. Da slipper du at høyttalerne lager ekko eller hyl.\n"
+         "•  Si noe og se på måleren «LYD INN». Nålen skal gå ca. halvveis opp. "
+         "Hvis den ofte går inn i det røde og lampen «PEAK» lyser, skru ned knappen «Mikrofon».\n"
+         "•  Knappen «Ekko: PÅ/AV» slår ekkoet av og på uten å stoppe lyden.\n"),
 
-    ("h2", "Hva knappene gjÃ¸r\n"),
-    ("", "De smÃ¥ gule ordene over knappene er de vanlige fagbegrepene. Ordene under knappene forklarer hva de gjÃ¸r.\n"),
+    ("h2", "Hva knappene gjør\n"),
+    ("", "De små gule ordene over knappene er de vanlige fagbegrepene. Ordene under knappene forklarer hva de gjør.\n"),
     ("b", "Mikrofon: "), ("", "hvor kraftig stemmen din tas inn. Skru opp hvis du er stille.\n"),
-    ("b", "RomstÃ¸rrelse: "), ("", "liten = lite rom, stor = kirke eller hall.\n"),
-    ("b", "Myk lyd: "), ("", "hÃ¸yt = varmere og mykere ekko, lavt = klarere og skarpere ekko.\n"),
-    ("b", "Mengde ekko: "), ("", "hvor mye ekko som legges pÃ¥. Start lavt og skru opp til det hÃ¸res bra ut.\n"),
+    ("b", "Romstørrelse: "), ("", "liten = lite rom, stor = kirke eller hall.\n"),
+    ("b", "Myk lyd: "), ("", "høyt = varmere og mykere ekko, lavt = klarere og skarpere ekko.\n"),
+    ("b", "Mengde ekko: "), ("", "hvor mye ekko som legges på. Start lavt og skru opp til det høres bra ut.\n"),
     ("b", "Din stemme: "), ("", "hvor mye av den vanlige stemmen din som slippes gjennom.\n"),
-    ("b", "Rombredde: "), ("", "hvor vidt ekkoet virker i hodetelefonene eller hÃ¸yttalerne.\n"),
-    ("b", "Volum ut: "), ("", "hvor hÃ¸yt lyden sendes til TikTok.\n"),
-    ("", "Tips: dobbeltklikk pÃ¥ en knapp for Ã¥ sette den tilbake til utgangspunktet.\n"),
+    ("b", "Rombredde: "), ("", "hvor vidt ekkoet virker i hodetelefonene eller høyttalerne.\n"),
+    ("b", "Volum ut: "), ("", "hvor høyt lyden sendes til TikTok.\n"),
+    ("", "Tips: dobbeltklikk på en knapp for å sette den tilbake til utgangspunktet.\n"),
 
-    ("h2", "HÃ¸re deg selv i Ã¸rene\n"),
-    ("", "NÃ¥r lyden sendes til Â«CABLE InputÂ», gÃ¥r den bare til TikTok og ikke til Ã¸rene dine. For Ã¥ hÃ¸re deg selv med effekten, "
-         "velg hodetelefonene dine under Â«HÃ¸r deg selv iÂ» og trykk Â«HÃ¸r meg selvÂ». Bruk hodetelefoner, ellers fÃ¥r du hyl og ekko. "
-         "Knappen Â«Volum i Ã¸reneÂ» i Avansert visning bestemmer hvor hÃ¸yt du hÃ¸rer deg selv, uten Ã¥ endre det seerne hÃ¸rer. "
-         "HÃ¸rer du smÃ¥ knepp, prÃ¸v en hÃ¸yere forsinkelse. Du kan ogsÃ¥ la vÃ¦re Ã¥ bruke dette og hÃ¸re deg selv med Windows' "
-         "Â«Lytt til denne enhetenÂ».\n"),
+    ("h2", "Høre deg selv i ørene\n"),
+    ("", "Når lyden sendes til «CABLE Input», går den bare til TikTok og ikke til ørene dine. For å høre deg selv med effekten, "
+         "velg hodetelefonene dine under «Hør deg selv i» og trykk «Hør meg selv». Bruk hodetelefoner, ellers får du hyl og ekko. "
+         "Knappen «Volum i ørene» i Avansert visning bestemmer hvor høyt du hører deg selv, uten å endre det seerne hører. "
+         "Hører du små knepp, prøv en høyere forsinkelse. Du kan også la være å bruke dette og høre deg selv med Windows' "
+         "«Lytt til denne enheten».\n"),
 
     ("h2", "Enkel eller Avansert visning\n"),
-    ("", "Ã˜verst til hÃ¸yre bytter du mellom Â«EnkelÂ» og Â«AvansertÂ». Enkel viser bare de fire viktigste knappene "
-         "(Mikrofon, RomstÃ¸rrelse, Mengde ekko og Volum ut). Avansert viser alle knappene, pluss en rad med finjustering. "
+    ("", "Øverst til høyre bytter du mellom «Enkel» og «Avansert». Enkel viser bare de fire viktigste knappene "
+         "(Mikrofon, Romstørrelse, Mengde ekko og Volum ut). Avansert viser alle knappene, pluss en rad med finjustering. "
          "Knappene du ikke ser i Enkel beholder verdiene sine. Bytter du mellom visningene, mister du ingenting. "
-         "I Avansert finner du ogsÃ¥ PÃ…/AV-knapper under de tre fÃ¸rste finjusteringsknappene, samt valgene for forsinkelse.\n"),
-    ("b", "Kutt dype lyder: "), ("", "hvor hÃ¸yt lavkuttet skjÃ¦rer. HÃ¸yere tall fjerner mer dunk og buldring.\n"),
-    ("b", "StÃ¸ygrense: "), ("", "hvor hÃ¸y lyden mÃ¥ vÃ¦re fÃ¸r stÃ¸yfilteret slipper den gjennom. HÃ¸yere tall (mot -25) gir sterkere stÃ¸yfilter.\n"),
+         "I Avansert finner du også PÅ/AV-knapper under de tre første finjusteringsknappene, samt valgene for forsinkelse.\n"),
+    ("b", "Kutt dype lyder: "), ("", "hvor høyt lavkuttet skjærer. Høyere tall fjerner mer dunk og buldring.\n"),
+    ("b", "Støygrense: "), ("", "hvor høy lyden må være før støyfilteret slipper den gjennom. Høyere tall (mot -25) gir sterkere støyfilter.\n"),
     ("b", "Jevn lyd: "), ("", "hvor kraftig kompressoren er. Mot 0 er den svak, mot 100 % er den kraftig.\n"),
-    ("b", "Lys / mÃ¸rk: "), ("", "mot hÃ¸yre blir stemmen klarere og skarpere, mot venstre mykere og mÃ¸rkere.\n"),
-    ("b", "Ekko-start: "), ("", "en liten pause fÃ¸r ekkoet kommer. Gir stemmen mer plass og blir ofte mer naturlig.\n"),
+    ("b", "Lys / mørk: "), ("", "mot høyre blir stemmen klarere og skarpere, mot venstre mykere og mørkere.\n"),
+    ("b", "Ekko-start: "), ("", "en liten pause før ekkoet kommer. Gir stemmen mer plass og blir ofte mer naturlig.\n"),
 
     ("b", "Inngangskanal: "),
-    ("", "har du et lydkort eller en lydboks (f.eks. Focusrite) med flere innganger, kan mikrofonen sitte pÃ¥ inngang 1 eller 2. "
-         "Â«BeggeÂ» fungerer som regel uansett. RÃ¸rer ikke nÃ¥lene seg nÃ¥r du snakker, prÃ¸v Â«Kanal 1Â» eller Â«Kanal 2Â».\n"),
+    ("", "har du et lydkort eller en lydboks (f.eks. Focusrite) med flere innganger, kan mikrofonen sitte på inngang 1 eller 2. "
+         "«Begge» fungerer som regel uansett. Rører ikke nålene seg når du snakker, prøv «Kanal 1» eller «Kanal 2».\n"),
 
     ("h2", "Lavkutt og kompressor\n"),
-    ("", "Disse tre har hver sin PÃ…/AV-knapp i Avansert visning, rett under knappen med samme tema.\n"),
+    ("", "Disse tre har hver sin PÅ/AV-knapp i Avansert visning, rett under knappen med samme tema.\n"),
     ("b", "Lavkutt: "),
-    ("", "fjerner dype lyder du ikke trenger, som buldring, vind og bordbank. Lar stemmen stÃ¥ klarere. "
-         "Lar du den stÃ¥ pÃ¥, er det som regel best.\n"),
-    ("b", "StÃ¸yfilter: "),
-    ("", "demper susing og bakgrunnsstÃ¸y nÃ¥r du er stille, sÃ¥ seerne ikke hÃ¸rer det mellom ordene. "
-         "Det virker mykt og jevnt, uten at det plutselig klipper lyden. Styrken justerer du med knappen Â«StÃ¸ygrenseÂ» (hÃ¸yere tall gir sterkere filter). Starter ordene dine Ã¥ bli "
-         "kuttet i begynnelsen eller slutten, velg et lavere tall eller slÃ¥ det av. HÃ¸rer du fortsatt stÃ¸y, velg et hÃ¸yere.\n"),
+    ("", "fjerner dype lyder du ikke trenger, som buldring, vind og bordbank. Lar stemmen stå klarere. "
+         "Lar du den stå på, er det som regel best.\n"),
+    ("b", "Støyfilter: "),
+    ("", "demper susing og bakgrunnsstøy når du er stille, så seerne ikke hører det mellom ordene. "
+         "Det virker mykt og jevnt, uten at det plutselig klipper lyden. Styrken justerer du med knappen «Støygrense» (høyere tall gir sterkere filter). Starter ordene dine å bli "
+         "kuttet i begynnelsen eller slutten, velg et lavere tall eller slå det av. Hører du fortsatt støy, velg et høyere.\n"),
     ("b", "Kompressor: "),
-    ("", "jevner ut lydstyrken, sÃ¥ rolige ord ikke forsvinner og hÃ¸ye ord ikke blir for kraftige. "
-         "Den er stilt middels kraftig og lÃ¸fter volumet litt. SlÃ¥ den av hvis du vil ha stemmen helt naturlig.\n"),
-    ("", "Alle tre kan slÃ¥s av og pÃ¥ mens du sender.\n"),
+    ("", "jevner ut lydstyrken, så rolige ord ikke forsvinner og høye ord ikke blir for kraftige. "
+         "Den er stilt middels kraftig og løfter volumet litt. Slå den av hvis du vil ha stemmen helt naturlig.\n"),
+    ("", "Alle tre kan slås av og på mens du sender.\n"),
 
     ("h2", "Forsinkelse\n"),
-    ("", "Du finner valget i Avansert visning. Lyden gÃ¥r gjennom appen pÃ¥ noen fÃ¥ tideler av et sekund. Â«MinstÂ» gir raskest lyd, "
-         "men kan fÃ¥ lyden til Ã¥ knitre pÃ¥ tregere PC-er. Knitrer det, velg Â«LavÂ», Â«MiddelsÂ» eller Â«MestÂ». "
-         "Â«Ekstra rask modusÂ» kan gi enda raskere lyd hvis du har et lydkort eller en USB-mikrofon, "
+    ("", "Du finner valget i Avansert visning. Lyden går gjennom appen på noen få tideler av et sekund. «Minst» gir raskest lyd, "
+         "men kan få lyden til å knitre på tregere PC-er. Knitrer det, velg «Lav», «Middels» eller «Mest». "
+         "«Ekstra rask modus» kan gi enda raskere lyd hvis du har et lydkort eller en USB-mikrofon, "
          "men fungerer ikke alltid.\n"),
 
     ("h2", "Stream Deck\n"),
-    ("", "Appen kan styres fra en Stream Deck. Installer pluginet Â«TheTomStock ReverbÂ» (filen "
-         "com.thetomstock.reverb.streamDeckPlugin fra Releases pÃ¥ GitHub, dobbeltklikk pÃ¥ den) og dra handlingene "
-         "Knapp, Av/pÃ¥ og Lydoppsett inn pÃ¥ tastene. Appen mÃ¥ vÃ¦re Ã¥pen. Styringen virker bare pÃ¥ denne PC-en.\n"),
+    ("", "Appen kan styres fra en Stream Deck. Er Stream Deck installert, legger appen selv inn pluginet «TheTomStock "
+         "Reverb» første gang du starter den. Start Stream Deck-programmet på nytt, og dra handlingene Knapp, Av/på, "
+         "Valg og Lydoppsett inn på tastene. Appen må være åpen. Styringen virker bare på denne PC-en.\n"),
 
     ("h2", "Hvis noe ikke virker\n"),
-    ("b", "Seerne hÃ¸rer ingenting: "),
-    ("", "sjekk at TikTok LIVE Studio bruker Â«CABLE OutputÂ» som mikrofon, "
-         "og at det stÃ¥r Â«CABLE InputÂ» ved Â«Send lyden tilÂ». Sjekk ogsÃ¥ at nÃ¥lene beveger seg nÃ¥r du snakker.\n"),
-    ("b", "NÃ¥lene beveger seg ikke: "),
-    ("", "velg riktig mikrofon under Â«Din mikrofonÂ», og sjekk at mikrofonen ikke er avslÃ¥tt i Windows. "
-         "Har du et lydkort med flere innganger, prÃ¸v en annen Â«InngangskanalÂ» i Avansert visning. "
-         "Sjekk ogsÃ¥ at fantomstrÃ¸m (48V) er pÃ¥ hvis mikrofonen din trenger det.\n"),
-    ("b", "Jeg hÃ¸rer meg selv med forsinkelse: "),
-    ("", "bruk hodetelefoner, og slÃ¥ av Â«Lytt til denne enhetenÂ» for mikrofonen i Windows' lydinnstillinger.\n"),
-    ("b", "Lyden knitrer: "), ("", "velg en hÃ¸yere forsinkelse i Avansert visning (Middels eller Mest) og lukk andre tunge programmer.\n"),
-    ("b", "Meldingen Â«Kunne ikke starte lydenÂ»: "),
-    ("", "prÃ¸v en annen mikrofon i listen, slÃ¥ av Â«Ekstra rask modusÂ», eller start appen pÃ¥ nytt.\n"),
+    ("b", "Seerne hører ingenting: "),
+    ("", "sjekk at TikTok LIVE Studio bruker «CABLE Output» som mikrofon, "
+         "og at det står «CABLE Input» ved «Send lyden til». Sjekk også at nålene beveger seg når du snakker.\n"),
+    ("b", "Nålene beveger seg ikke: "),
+    ("", "velg riktig mikrofon under «Din mikrofon», og sjekk at mikrofonen ikke er avslått i Windows. "
+         "Har du et lydkort med flere innganger, prøv en annen «Inngangskanal» i Avansert visning. "
+         "Sjekk også at fantomstrøm (48V) er på hvis mikrofonen din trenger det.\n"),
+    ("b", "Jeg hører meg selv med forsinkelse: "),
+    ("", "bruk hodetelefoner, og slå av «Lytt til denne enheten» for mikrofonen i Windows' lydinnstillinger.\n"),
+    ("b", "Lyden knitrer: "), ("", "velg en høyere forsinkelse i Avansert visning (Middels eller Mest) og lukk andre tunge programmer.\n"),
+    ("b", "Meldingen «Kunne ikke starte lyden»: "),
+    ("", "prøv en annen mikrofon i listen, slå av «Ekstra rask modus», eller start appen på nytt.\n"),
 ]
 
 
@@ -243,7 +276,7 @@ def rrect(c, x1, y1, x2, y2, r, **kw):
 
 
 class RoundBox(tk.Canvas):
-    """Panel med runde hjÃ¸rner. Legg innholdet i .inner."""
+    """Panel med runde hjørner. Legg innholdet i .inner."""
 
     def __init__(self, master, pad=12, radius=18, fill=PANEL, outline=GOLD_DIM):
         super().__init__(master, bg=BG, highlightthickness=0)
@@ -261,7 +294,7 @@ class RoundBox(tk.Canvas):
 
 
 class RoundButton(tk.Canvas):
-    """Avrundet knapp med dempet gullkant, som rammene rundt mÃ¥lerne."""
+    """Avrundet knapp med dempet gullkant, som rammene rundt målerne."""
 
     def __init__(self, master, command, width=142, height=30, radius=11, bg=BG):
         super().__init__(master, width=width, height=height, bg=bg, highlightthickness=0, cursor="hand2")
@@ -300,7 +333,7 @@ class RoundButton(tk.Canvas):
 
 
 class VUMeter(tk.Canvas):
-    """Retro analog VU-mÃ¥ler med elfenbensskive, nÃ¥l og rÃ¸d overstyringslampe."""
+    """Retro analog VU-måler med elfenbensskive, nål og rød overstyringslampe."""
 
     DB_MIN, DB_MAX = -36.0, 0.0
     A0, A1 = 150.0, 30.0  # vinkel (grader) ved DB_MIN og DB_MAX
@@ -355,7 +388,7 @@ class VUMeter(tk.Canvas):
         self.shadow = self.create_line(cx, cy, cx, cy - 100, fill="#6f6643", width=3, capstyle="round")
         self.needle = self.create_line(cx, cy, cx, cy - 100, fill="#171410", width=2, capstyle="round")
 
-        # sokkel som skjuler nÃ¥lens dreiepunkt
+        # sokkel som skjuler nålens dreiepunkt
         self.create_rectangle(3, face_bottom, w - 3, h - 2, fill="#090909", outline="")
         rrect(self, 1, 1, w - 1, h - 1, 16, fill="", outline=GOLD_DIM)
         self.create_arc(cx - 24, face_bottom - 24, cx + 24, face_bottom + 24, start=0, extent=180,
@@ -386,7 +419,7 @@ class VUMeter(tk.Canvas):
 # (key, label, min, max, default, enhet)
 KNOBS = [
     ("in_gain", "Mikrofon", -12.0, 24.0, 0.0, ""),
-    ("room", "RomstÃ¸rrelse", 0.0, 1.0, 0.45, ""),
+    ("room", "Romstørrelse", 0.0, 1.0, 0.45, ""),
     ("damping", "Myk lyd", 0.0, 1.0, 0.5, ""),
     ("wet", "Mengde ekko", 0.0, 1.0, 0.25, ""),
     ("dry", "Din stemme", 0.0, 1.0, 0.85, ""),
@@ -400,22 +433,22 @@ SIMPLE_KEYS = ("in_gain", "room", "wet", "out_gain")
 # (key, label, min, max, default, formatering) - ekstra finjustering som bare vises i Avansert-visning
 ADV_KNOBS = [
     ("lc_freq", "Kutt dype lyder", 40.0, 300.0, 90.0, lambda v: f"{v:.0f} Hz"),
-    ("gate_db", "StÃ¸ygrense", -60.0, -25.0, -44.0, lambda v: f"{v:.0f} dB"),
+    ("gate_db", "Støygrense", -60.0, -25.0, -44.0, lambda v: f"{v:.0f} dB"),
     ("comp_amt", "Jevn lyd", 0.0, 1.0, 0.6, lambda v: f"{v * 100:.0f} %"),
-    ("tone", "Lys / mÃ¸rk", -1.0, 1.0, 0.0, lambda v: f"{v * 6:+.0f} dB"),
+    ("tone", "Lys / mørk", -1.0, 1.0, 0.0, lambda v: f"{v * 6:+.0f} dB"),
     ("predelay", "Ekko-start", 0.0, 120.0, 0.0, lambda v: f"{v:.0f} ms"),
-    ("mon_vol", "Volum i Ã¸rene", -24.0, 6.0, 0.0, lambda v: f"{v:+.0f} dB"),
+    ("mon_vol", "Volum i ørene", -24.0, 6.0, 0.0, lambda v: f"{v:+.0f} dB"),
 ]
 
 # vanlige fagbegreper som vises over knappene
-TERMS = {"in_gain": "INNGANG", "room": "ROMSTÃ˜RRELSE", "damping": "DEMPING", "wet": "REVERB",
+TERMS = {"in_gain": "INNGANG", "room": "ROMSTØRRELSE", "damping": "DEMPING", "wet": "REVERB",
          "dry": "ORIGINAL", "width": "BREDDE", "out_gain": "UTGANG",
-         "lc_freq": "LAVKUTT", "gate_db": "STÃ˜YFILTER", "comp_amt": "KOMPRESSOR", "tone": "TONE",
+         "lc_freq": "LAVKUTT", "gate_db": "STØYFILTER", "comp_amt": "KOMPRESSOR", "tone": "TONE",
          "predelay": "PRE-DELAY", "mon_vol": "MONITOR"}
 
 
 class Knob(tk.Canvas):
-    """Dra opp/ned for Ã¥ endre, dobbeltklikk for standard, musehjul for finjustering."""
+    """Dra opp/ned for å endre, dobbeltklikk for standard, musehjul for finjustering."""
 
     def __init__(self, master, label, lo, hi, default, unit, on_change, value=None, term="", fmt=None):
         super().__init__(master, width=96, height=144, bg=PANEL, highlightthickness=0)
@@ -453,14 +486,14 @@ class Knob(tk.Canvas):
         self.delete("all")
         cx, cy = 48, 70
         frac = (self.value - self.lo) / (self.hi - self.lo)
-        a0, a1 = 225.0, -45.0  # skalaen gÃ¥r fra 7:30 til 4:30 pÃ¥ urskiva
+        a0, a1 = 225.0, -45.0  # skalaen går fra 7:30 til 4:30 på urskiva
         glow = 0.4 + 0.6 * frac
 
-        # svakt rÃ¸dt skjÃ¦r bak knappen
+        # svakt rødt skjær bak knappen
         for rr, t in ((34, 0.10), (32, 0.20), (30, 0.36)):
             self.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, outline=mix(PANEL, ACCENT, t * glow), width=2)
 
-        # skala med streker, de som er passert lyser rÃ¸dt
+        # skala med streker, de som er passert lyser rødt
         n = 20
         for i in range(n + 1):
             t = i / n
@@ -477,7 +510,7 @@ class Knob(tk.Canvas):
                              cx + r2 * math.cos(ang), cy - r2 * math.sin(ang),
                              fill=col, width=2 if major else 1)
 
-        # knapp: skygge, riflet kant, bÃ¸rstet metallhette med lysrefleks oppe til venstre
+        # knapp: skygge, riflet kant, børstet metallhette med lysrefleks oppe til venstre
         self.create_oval(cx - 27, cy - 25, cx + 29, cy + 31, fill="#000000", outline="")
         self.create_oval(cx - 28, cy - 28, cx + 28, cy + 28, fill="#0e0e0e", outline="#050505")
         for i in range(48):
@@ -494,7 +527,7 @@ class Knob(tk.Canvas):
         self.create_oval(cx - 17, cy - 19, cx - 6, cy - 11, fill="#9a9a9a", outline="")
         self.create_oval(cx - 15, cy - 18, cx - 8, cy - 13, fill="#c8c8c8", outline="")
 
-        # retro viser: kremfarget strek med skygge og lite rÃ¸dt hode
+        # retro viser: kremfarget strek med skygge og lite rødt hode
         ang = math.radians(a0 + (a1 - a0) * frac)
         c, sn = math.cos(ang), math.sin(ang)
         self.create_line(cx + 7 * c + 1, cy - 7 * sn + 1, cx + 23 * c + 1, cy - 23 * sn + 1,
@@ -511,7 +544,7 @@ class Knob(tk.Canvas):
 
 
 class Ring:
-    """Enkel ringbuffer mellom to lydstrÃ¸mmer: Ã©n skriver, Ã©n leser."""
+    """Enkel ringbuffer mellom to lydstrømmer: én skriver, én leser."""
 
     def __init__(self, frames=1 << 16):
         self.cap = frames
@@ -541,7 +574,7 @@ class Ring:
 
 
 class Engine:
-    REVERB_STEP = 0.01  # stÃ¸rste endring av romparametre per lydblokk, sÃ¥ det ikke klikker
+    REVERB_STEP = 0.01  # største endring av romparametre per lydblokk, så det ikke klikker
 
     def __init__(self):
         self.params = {k: d for k, _, _, _, d, _ in KNOBS + ADV_KNOBS}
@@ -557,7 +590,7 @@ class Engine:
         self.mon_error = None
         self._mon_primed = False
         self._mon_target = 384
-        self._cur = {}  # glattede verdier, brukes bare av lydtrÃ¥den
+        self._cur = {}  # glattede verdier, brukes bare av lydtråden
         self._was_on = {"lowcut": True, "gate": True, "comp": True}
         self._build_board()
 
@@ -582,10 +615,10 @@ class Engine:
         self._cur.update(room=p["room"], damping=p["damping"], width=p["width"])
 
     def update(self, key, value):
-        self.params[key] = value  # lydtrÃ¥den henter verdien og glatter den selv
+        self.params[key] = value  # lydtråden henter verdien og glatter den selv
 
     def _gain(self, key, frames, db):
-        """Gain som glir jevnt over blokken i stedet for Ã¥ hoppe."""
+        """Gain som glir jevnt over blokken i stedet for å hoppe."""
         target = 10 ** (self.params[key] / 20) if db else self.params[key]
         prev = self._cur.get(key, target)
         self._cur[key] = target
@@ -599,7 +632,7 @@ class Engine:
         self.makeup.gain_db = 6.0 * amt
 
     def _sync_plugins(self):
-        """OverfÃ¸rer knappenes verdier til filtrene, bare nÃ¥r de er endret."""
+        """Overfører knappenes verdier til filtrene, bare når de er endret."""
         p, applied = self.params, self._applied
         for key, apply in (
                 ("lc_freq", lambda v: setattr(self.hp, "cutoff_frequency_hz", v)),
@@ -665,7 +698,7 @@ class Engine:
                 outdata.fill(0)
                 return
             self._mon_primed = True
-        if avail > self._mon_target * 4:  # lydkortene gÃ¥r ikke helt likt, sÃ¥ hopp fram
+        if avail > self._mon_target * 4:  # lydkortene går ikke helt likt, så hopp fram
             r.r = r.w - self._mon_target
             avail = self._mon_target
         if avail < frames:
@@ -675,7 +708,7 @@ class Engine:
         r.read(outdata)
 
     def start_monitor(self, dev):
-        """Spiller den ferdige lyden ogsÃ¥ i en annen enhet, f.eks. hodetelefonene dine."""
+        """Spiller den ferdige lyden også i en annen enhet, f.eks. hodetelefonene dine."""
         self.stop_monitor()
         self.mon_error = None
         try:
@@ -764,6 +797,7 @@ class App(tk.Tk):
         self._build_ui()
         self.control = ControlServer(self)
         self.control.start()
+        self.sd_note = "  ·  Stream Deck-plugin installert, start Stream Deck på nytt" if install_streamdeck_plugin() else ""
         self.after(33, self._tick)
         self.after(50, self._dwm)
         self._update_found = None
@@ -774,7 +808,7 @@ class App(tk.Tk):
         self._start()
 
     def _check_update(self):
-        """SpÃ¸r GitHub om siste utgivelse. Feiler stille hvis du er uten nett."""
+        """Spør GitHub om siste utgivelse. Feiler stille hvis du er uten nett."""
         try:
             req = urllib.request.Request(
                 f"https://api.github.com/repos/{REPO}/releases/latest",
@@ -810,7 +844,7 @@ class App(tk.Tk):
         auto = self._can_self_update()
         self.upd_btn = RoundButton(box, self._start_update if auto else lambda: webbrowser.open(info["page"]),
                                    width=100, height=26, radius=9, bg="#140f00")
-        self.upd_btn.show("Oppdater nÃ¥" if auto else "Last ned", True)
+        self.upd_btn.show("Oppdater nå" if auto else "Last ned", True)
         self.upd_btn.pack(side="left", padx=(0, 8), pady=4)
         box.place(relx=1.0, x=-18, y=16, anchor="ne")
 
@@ -836,10 +870,10 @@ class App(tk.Tk):
         if not dl:
             return
         if dl["state"] == "downloading":
-            self.upd_label.config(text=f"Laster ned â€¦ {dl['pct']} %")
+            self.upd_label.config(text=f"Laster ned … {dl['pct']} %")
         elif dl["state"] == "ready":
             dl["state"] = "applying"
-            self.upd_label.config(text="Starter pÃ¥ nytt â€¦")
+            self.upd_label.config(text="Starter på nytt …")
             new_path, target = self._swap
             script = os.path.join(tempfile.gettempdir(), "TheTomStock_Reverb_update.bat")
             write_swap_script(new_path, target, os.getpid(), script)
@@ -855,7 +889,7 @@ class App(tk.Tk):
             self.upd_btn.set_enabled(True)
 
     def _dwm(self, win=None):
-        """Runde hjÃ¸rner og gull ramme fra Windows 11 (ignoreres stille pÃ¥ eldre Windows)."""
+        """Runde hjørner og gull ramme fra Windows 11 (ignoreres stille på eldre Windows)."""
         try:
             import ctypes
             from ctypes import wintypes
@@ -867,8 +901,8 @@ class App(tk.Tk):
                 val = ctypes.c_int(v)
                 ctypes.windll.dwmapi.DwmSetWindowAttribute(wintypes.HWND(hwnd), n, ctypes.byref(val), 4)
 
-            attr(20, 1)           # mÃ¸rk tittellinje
-            attr(33, 2)           # runde hjÃ¸rner
+            attr(20, 1)           # mørk tittellinje
+            attr(33, 2)           # runde hjørner
             attr(34, 0x0037AFD4)  # kantfarge (gull, BGR)
             attr(35, 0x00000000)  # tittellinje svart
             attr(36, 0x00D3EAF2)  # tittelfarge
@@ -909,7 +943,7 @@ class App(tk.Tk):
             row=0, column=0, sticky="w", padx=16, pady=(14, 0))
         head = tk.Frame(self, bg=BG)
         head.grid(row=1, column=0, sticky="we", padx=16)
-        tk.Label(head, text="Dra knappene opp og ned for Ã¥ endre. Dobbeltklikk pÃ¥ en knapp for Ã¥ nullstille.",
+        tk.Label(head, text="Dra knappene opp og ned for å endre. Dobbeltklikk på en knapp for å nullstille.",
                  bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left")
         sw = tk.Frame(head, bg=BG)
         sw.pack(side="right")
@@ -934,7 +968,7 @@ class App(tk.Tk):
         self.adv_frame = tk.Frame(inner, bg=PANEL)
         self.adv_frame.grid(row=1, column=0, sticky="we")
         tk.Frame(self.adv_frame, bg=GOLD_DIM, height=1).pack(fill="x", padx=14, pady=(2, 4))
-        tk.Label(self.adv_frame, text="AVANSERT  Â·  finjustering", bg=PANEL, fg=MUTED,
+        tk.Label(self.adv_frame, text="AVANSERT  ·  finjustering", bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 7, "bold")).pack()
         self.row1 = tk.Frame(self.adv_frame, bg=PANEL)
         self.row1.pack()
@@ -950,7 +984,7 @@ class App(tk.Tk):
             tk.Radiobutton(cline, text=text, value=v, variable=self.chan_var, bg=PANEL, fg=FG, selectcolor=BG,
                            activebackground=PANEL, activeforeground=FG,
                            command=lambda: self.engine.params.update(in_channel=self.chan_var.get())).pack(side="left")
-        tk.Label(cline, text="  (rÃ¸rer ikke nÃ¥lene seg, prÃ¸v en annen)", bg=PANEL, fg=MUTED,
+        tk.Label(cline, text="  (rører ikke nålene seg, prøv en annen)", bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 8)).pack(side="left")
         line = tk.Frame(perf, bg=PANEL)
         line.pack(anchor="w")
@@ -958,7 +992,7 @@ class App(tk.Tk):
         for text, b in (("Minst", 64), ("Lav", 128), ("Middels", 256), ("Mest", 512)):
             tk.Radiobutton(line, text=text, value=b, variable=self.block_var, bg=PANEL, fg=FG, selectcolor=BG,
                            activebackground=PANEL, activeforeground=FG, command=self._start).pack(side="left")
-        tk.Label(line, text="  (knitrer lyden, velg en hÃ¸yere)", bg=PANEL, fg=MUTED,
+        tk.Label(line, text="  (knitrer lyden, velg en høyere)", bg=PANEL, fg=MUTED,
                  font=("Segoe UI", 8)).pack(side="left")
         tk.Checkbutton(perf, text="Ekstra rask modus (kan feile hvis et annet program bruker mikrofonen)",
                        variable=self.mon_var, bg=PANEL, fg=FG, selectcolor=BG, activebackground=PANEL,
@@ -976,7 +1010,7 @@ class App(tk.Tk):
             self.engine.update(key, val)
             self.knobs[key] = Knob(self.row1, label, lo, hi, default, "",
                                    lambda v, key=key: self.engine.update(key, v), value=val, term=TERMS[key], fmt=fmt)
-        # PÃ…/AV rett under knappen den hÃ¸rer til
+        # PÅ/AV rett under knappen den hører til
         self.toggles = [self._toggle_button(self.row1, key) for key in ("lowcut", "gate", "comp")]
         self._set_mode(self.mode)
 
@@ -1003,7 +1037,7 @@ class App(tk.Tk):
         self.mon_dev_var = tk.StringVar(value=self.saved.get("mon_dev") if self.saved.get("mon_dev") in mon_names
                                         else self._default(mon_names, ("Hodetelefoner", "Headphone", "Headset")))
         self.engine.params["monitor"] = bool(self.saved.get("monitor", False))
-        tk.Label(dev, text="HÃ¸r deg selv i", bg=BG, fg=MUTED).grid(row=2, column=0, sticky="w", pady=4)
+        tk.Label(dev, text="Hør deg selv i", bg=BG, fg=MUTED).grid(row=2, column=0, sticky="w", pady=4)
         self.mon_cb = ttk.Combobox(dev, textvariable=self.mon_dev_var, values=mon_names, state="readonly", width=52)
         self.mon_cb.grid(row=2, column=1, sticky="we", padx=(10, 0))
         self.mon_cb.bind("<<ComboboxSelected>>", lambda e: self._sync_monitor())
@@ -1013,7 +1047,7 @@ class App(tk.Tk):
         bottom = tk.Frame(self, bg=BG)
         bottom.grid(row=5, column=0, sticky="we", padx=16, pady=12)
         self.bypass_btn = RoundButton(bottom, self._toggle_bypass, width=110, height=30)
-        self.bypass_btn.show("Ekko: PÃ…", True)
+        self.bypass_btn.show("Ekko: PÅ", True)
         self.bypass_btn.pack(side="left")
         self.status = tk.Label(bottom, text="", bg=BG, fg=MUTED, anchor="w", justify="left")
         self.status.pack(side="left", padx=12)
@@ -1029,7 +1063,7 @@ class App(tk.Tk):
         dl_btn.show("Last ned VB-Cable", True)
         dl_btn.pack(side="left")
         check_btn = RoundButton(self.cable_btns, self._refresh_devices, width=110, height=28, radius=10)
-        check_btn.show("Sjekk pÃ¥ nytt", False, color=FG)
+        check_btn.show("Sjekk på nytt", False, color=FG)
         check_btn.pack(side="left", padx=8)
         link = tk.Label(self.cable_box, text="Last ned VB-Cable (gratis): vb-audio.com/Cable", bg=BG, fg=GOLD,
                         font=("Segoe UI", 9, "underline"), cursor="hand2")
@@ -1087,13 +1121,13 @@ class App(tk.Tk):
 
     def _update_cable_notice(self, cable):
         if cable:
-            self.cable_msg.config(fg="#4cd964", text="Klar! I TikTok LIVE Studio velger du Â«CABLE OutputÂ» "
+            self.cable_msg.config(fg="#4cd964", text="Klar! I TikTok LIVE Studio velger du «CABLE Output» "
                                                      "som mikrofon.")
             self.cable_btns.pack_forget()
         else:
             self.cable_msg.config(fg="#ffb347", text="Du mangler et gratis hjelpeprogram (VB-Cable) som sender "
                                                      "lyden til TikTok. Last det ned og installer det, start PC-en "
-                                                     "pÃ¥ nytt, og trykk sÃ¥ Â«Sjekk pÃ¥ nyttÂ».")
+                                                     "på nytt, og trykk så «Sjekk på nytt».")
             self.cable_btns.pack(side="top", anchor="w", pady=(4, 0))
 
     def _refresh_devices(self):
@@ -1162,7 +1196,7 @@ class App(tk.Tk):
 
     def _set_toggle(self, key, on):
         self.engine.params[key] = on
-        self._toggle_btns[key].show("PÃ…" if on else "AV", on)
+        self._toggle_btns[key].show("PÅ" if on else "AV", on)
 
     @staticmethod
     def _monitor_names(out_names):
@@ -1170,7 +1204,7 @@ class App(tk.Tk):
 
     def _refresh_mon_btn(self):
         on = self.engine.params["monitor"]
-        self.mon_btn.show("HÃ¸r meg selv: PÃ…" if on else "HÃ¸r meg selv: AV", on)
+        self.mon_btn.show("Hør meg selv: PÅ" if on else "Hør meg selv: AV", on)
 
     def _toggle_monitor(self):
         self._set_monitor(not self.engine.params["monitor"])
@@ -1193,7 +1227,7 @@ class App(tk.Tk):
 
     def _set_echo(self, on):
         self.engine.params["bypass"] = not on
-        self.bypass_btn.show("Ekko: PÃ…" if on else "Ekko: AV", on)
+        self.bypass_btn.show("Ekko: PÅ" if on else "Ekko: AV", on)
 
     def control_toggle(self, name, on=None):
         """Brukes av kontrollporten. on=None bytter til motsatt."""
@@ -1201,11 +1235,44 @@ class App(tk.Tk):
             self._set_echo(not self.engine.params["bypass"] if on is None else on)
         elif name == "monitor":
             self._set_monitor(not self.engine.params["monitor"] if on is None else on)
+        elif name == "exclusive":
+            self.mon_var.set(not self.mon_var.get() if on is None else on)
+            self._start()
         else:
             self._set_toggle(name, not self.engine.params[name] if on is None else on)
 
-    def control_mode(self, mode):
-        self._set_mode(mode)
+    def control_choices(self):
+        """Valgene som ikke er knapper eller brytere: navn -> (tekst, gjeldende verdi, [(verdi, tekst)])."""
+        return {
+            "mode": ("Visning", self.mode, [("enkel", "Enkel"), ("avansert", "Avansert")]),
+            "in_channel": ("Inngangskanal", self.chan_var.get(), [(0, "Kanal 1"), (1, "Kanal 2"), (2, "Begge")]),
+            "block": ("Forsinkelse", self.block_var.get(),
+                      [(64, "Minst"), (128, "Lav"), (256, "Middels"), (512, "Mest")]),
+            "in_dev": ("Mikrofon", self.in_var.get(), [(n, n) for _, n in self.ins]),
+            "out_dev": ("Send lyden til", self.out_var.get(), [(n, n) for _, n in self.outs]),
+            "mon_dev": ("Hør deg selv i", self.mon_dev_var.get(), [(n, n) for n in self._monitor_names(
+                [n for _, n in self.outs])]),
+        }
+
+    def control_choice(self, name, value):
+        """Verdien er allerede kontrollert mot control_choices() av kontrollporten."""
+        if name == "mode":
+            self._set_mode(value)
+        elif name == "in_channel":
+            self.chan_var.set(value)
+            self.engine.params["in_channel"] = value
+        elif name == "block":
+            self.block_var.set(value)
+            self._start()
+        elif name == "in_dev":
+            self.in_var.set(value)
+            self._start()
+        elif name == "out_dev":
+            self.out_var.set(value)
+            self._start()
+        elif name == "mon_dev":
+            self.mon_dev_var.set(value)
+            self._sync_monitor()
 
     def _start(self):
         in_dev = next(i for i, n in self.ins if n == self.in_var.get())
@@ -1227,10 +1294,10 @@ class App(tk.Tk):
         lat = self.engine.latency_ms()
         if self.engine.error:
             self.status.config(text="Kunne ikke starte lyden. Sjekk at riktig mikrofon er valgt, "
-                               "eller velg hÃ¸yere forsinkelse (i Avansert visning).", fg="#ff6b6b", wraplength=420)
+                               "eller velg høyere forsinkelse (i Avansert visning).", fg="#ff6b6b", wraplength=420)
         elif lat is not None:
-            extra = "  Â·  Kunne ikke Ã¥pne enheten for Ã¥ hÃ¸re deg selv" if self.engine.mon_error else ""
-            self.status.config(text=f"Alt kjÃ¸rer Â· forsinkelse ca. {lat:.0f} ms{extra}",
+            extra = "  ·  Kunne ikke åpne enheten for å høre deg selv" if self.engine.mon_error else ""
+            self.status.config(text=f"Alt kjører · forsinkelse ca. {lat:.0f} ms{extra}{self.sd_note}",
                                fg="#ffb347" if extra else MUTED, wraplength=0)
         self.after(33, self._tick)
 

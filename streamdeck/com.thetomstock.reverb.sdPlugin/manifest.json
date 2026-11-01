@@ -64,6 +64,28 @@
       ]
     },
     {
+      "Name": "Valg",
+      "UUID": "com.thetomstock.reverb.choice",
+      "Icon": "imgs/actions/choice",
+      "Tooltip": "Bytt visning, inngangskanal, forsinkelse, mikrofon eller utgang. På Stream Deck + kan dreieknappen bla gjennom valgene.",
+      "PropertyInspectorPath": "pi/choice.html",
+      "Controllers": ["Keypad", "Encoder"],
+      "States": [
+        {
+          "Image": "imgs/actions/choice-key",
+          "TitleAlignment": "bottom",
+          "ShowTitle": false
+        }
+      ],
+      "Encoder": {
+        "layout": "$B1",
+        "Icon": "imgs/actions/choice",
+        "TriggerDescription": {
+          "Rotate": "Bla gjennom valgene"
+        }
+      }
+    },
+    {
       "Name": "Lydoppsett",
       "UUID": "com.thetomstock.reverb.preset",
       "Icon": "imgs/actions/preset",

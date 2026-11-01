@@ -8,7 +8,16 @@ const KNOBS = [
 ];
 const TOGGLES = [
   ["echo", "Ekko"], ["monitor", "Hør meg selv"], ["lowcut", "Kutt dype lyder"], ["gate", "Støyfilter"],
-  ["comp", "Kompressor"],
+  ["comp", "Kompressor"], ["exclusive", "Ekstra rask modus"],
+];
+// valg som har faste lister; enhetene (in_dev, out_dev, mon_dev) hentes fra appen
+const CHOICES = [
+  ["mode", "Visning", [["enkel", "Enkel"], ["avansert", "Avansert"]]],
+  ["in_channel", "Inngangskanal", [["0", "Kanal 1"], ["1", "Kanal 2"], ["2", "Begge"]]],
+  ["block", "Forsinkelse", [["64", "Minst"], ["128", "Lav"], ["256", "Middels"], ["512", "Mest"]]],
+  ["in_dev", "Mikrofon", null],
+  ["out_dev", "Send lyden til", null],
+  ["mon_dev", "Hør deg selv i", null],
 ];
 
 let socket = null;

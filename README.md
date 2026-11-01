@@ -23,12 +23,15 @@ Mikrofonen går gjennom appen og ut til en virtuell lydkabel (VB-Cable), som Tik
 
 Appen har en kontrollport som bare virker på din egen PC, og et plugin som bruker den. Du trenger Stream Deck-programmet fra Elgato (versjon 6.4 eller nyere). Alle modeller fungerer. På Stream Deck + kan dreieknappene styre knappene i appen direkte.
 
-1. Last ned `com.thetomstock.reverb.streamDeckPlugin` fra **Releases** og dobbeltklikk på den.
-2. Start TheTomStock_Reverb. Appen må være åpen for at tastene skal virke.
+1. Start `TheTomStock_Reverb.exe`. Er Stream Deck installert, legger appen selv inn pluginet første gang (og når det er oppdatert). Start Stream Deck-programmet på nytt etterpå, så det finner pluginet. Du kan også dobbeltklikke på `com.thetomstock.reverb.streamDeckPlugin` fra **Releases**.
+2. Appen må være åpen for at tastene skal virke.
 3. Finn kategorien **TheTomStock Reverb** til høyre i Stream Deck-programmet og dra handlinger inn på tastene:
    - **Knapp**: velg knapp, og om tasten skal skru opp, skru ned, sette en verdi eller nullstille. Hold tasten inne for å skru videre.
-   - **Av/på**: ekko, hør meg selv, lavkutt, støyfilter eller kompressor. Tasten viser om funksjonen er på.
-   - **Lydoppsett**: still inn lyden i appen og trykk «Bruk lyden som står i appen nå», så lagres den på tasten. Tasten lyser rødt når oppsettet er aktivt.
+   - **Av/på**: ekko, hør meg selv, lavkutt, støyfilter, kompressor eller ekstra rask modus. Tasten viser om funksjonen er på.
+   - **Valg**: visning (enkel eller avansert), inngangskanal, forsinkelse, mikrofon, utgang og enhet for «hør deg selv». Tasten kan gå til neste eller forrige i listen, eller velge noe bestemt. På Stream Deck + blar dreieknappen gjennom listen.
+   - **Lydoppsett**: still inn lyden i appen og trykk «Bruk lyden som står i appen nå», så lagres den på tasten. Du velger selv hvilke knapper, brytere og valg som skal være med. Tasten lyser rødt når oppsettet er aktivt.
+
+Alle funksjonene i appen kan altså styres, og du velger selv hvilke du vil ha på tastene.
 
 Vil du heller bruke en vanlig Stream Deck-handling («Nettsted» eller en HTTP-forespørsel) uten pluginet, kan du kalle adressene under. Appen bruker port 8765, eller den neste ledige opp til 8774 hvis 8765 er opptatt.
 
@@ -38,7 +41,9 @@ Vil du heller bruke en vanlig Stream Deck-handling («Nettsted» eller en HTTP-f
 | `/set?pct_wet=40&pct_room=80&echo=on` | setter flere knapper (0-100 % av skalaen) og brytere |
 | `/step?knob=wet&steps=2` | skrur opp (negativt tall skrur ned), ett steg er 2 % |
 | `/reset?knob=wet` | tilbake til standard (uten `knob` nullstilles alle) |
-| `/toggle?name=echo` | bytter en bryter: `echo`, `monitor`, `lowcut`, `gate`, `comp` (legg til `&state=on` eller `off`) |
+| `/toggle?name=echo` | bytter en bryter: `echo`, `monitor`, `lowcut`, `gate`, `comp`, `exclusive` (legg til `&state=on` eller `off`) |
+| `/choose?name=block&value=256` | velger noe fra en liste: `mode`, `in_channel`, `block`, `in_dev`, `out_dev`, `mon_dev`. Lovlige verdier står under `choices` i `/state` |
+| `/choose?name=in_dev&step=1` | går til neste (`1`) eller forrige (`-1`) i listen |
 | `/mode?name=avansert` | bytter visning (`enkel` eller `avansert`) |
 
 Knappene heter `in_gain`, `room`, `damping`, `wet`, `dry`, `width`, `out_gain`, `lc_freq`, `gate_db`, `comp_amt`, `tone`, `predelay` og `mon_vol`. Porten tar bare imot forespørsler fra programmer på PC-en din, ikke fra nettsider.

@@ -11,8 +11,10 @@ ikke andre tråder), så HTTP-tråden legger jobbene i en kø som appen tømmer 
   /set?pct_wet=40&pct_room=80   som over, flere knapper på en gang
   /step?knob=wet&steps=2        skru opp (+) eller ned (-), ett steg er det samme som ett klikk med musehjulet
   /reset?knob=wet               tilbake til standard (uten knob: alle knapper)
-  /toggle?name=echo[&state=on]  bryter: echo, monitor, lowcut, gate, comp
-  /mode?name=avansert           visning: enkel eller avansert
+  /toggle?name=echo[&state=on]  bryter: echo, monitor, lowcut, gate, comp, exclusive
+  /choose?name=block&value=256  valg: mode, in_channel, block, in_dev, out_dev, mon_dev (se choices i /state)
+  /choose?name=in_dev&step=1    gå til neste (1) eller forrige (-1) valg
+  /mode?name=avansert           visning: enkel eller avansert (samme som /choose?name=mode)
 """
 import json
 import math
@@ -23,7 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 PORTS = range(8765, 8775)
 HOSTS = ("127.0.0.1", "localhost")
-TOGGLES = ("echo", "monitor", "lowcut", "gate", "comp")
+TOGGLES = ("echo", "monitor", "lowcut", "gate", "comp", "exclusive")
 ON = ("on", "1", "true", "pa", "på")
 OFF = ("off", "0", "false", "av")
 WAIT_S = 1.5
@@ -66,7 +68,25 @@ def _knob_text(key, knob):
 def _toggle_values(app):
     p = app.engine.params
     return {"echo": not p["bypass"], "monitor": p["monitor"], "lowcut": p["lowcut"], "gate": p["gate"],
-            "comp": p["comp"]}
+            "comp": p["comp"], "exclusive": bool(app.mon_var.get())}
+
+
+def _choice(app, name, value=None, step=None):
+    """Finner valget som skal settes: enten verdien fra spørringen eller neste/forrige i listen."""
+    choices = app.control_choices()
+    if name not in choices:
+        raise ValueError("ukjent valg: " + str(name))
+    _, current, options = choices[name]
+    values = [v for v, _ in options]
+    if step is not None:
+        if not values:
+            raise ValueError("ingen valg å velge mellom")
+        i = values.index(current) if current in values else -1
+        return values[(i + int(_number(step, "step"))) % len(values)]
+    for v in values:
+        if str(v) == value:
+            return v
+    raise ValueError(f"{name} må være en av: " + ", ".join(str(v) for v in values))
 
 
 def state(app):
@@ -75,14 +95,19 @@ def state(app):
         knobs[key] = {"label": knob.label, "value": knob.value, "min": knob.lo, "max": knob.hi,
                       "default": knob.default, "pct": (knob.value - knob.lo) / (knob.hi - knob.lo) * 100,
                       "text": _knob_text(key, knob)}
+    choices = {name: {"label": label, "value": current, "options": [{"value": v, "text": t} for v, t in options],
+                      "text": next((t for v, t in options if v == current), str(current))}
+               for name, (label, current, options) in app.control_choices().items()}
     return {"app": app.app_name, "version": app.app_version, "mode": app.mode, "knobs": knobs,
-            "toggles": _toggle_values(app)}
+            "toggles": _toggle_values(app), "choices": choices}
 
 
 def _set(app, q):
-    changes, switches = [], []
+    changes, switches, picks = [], [], []
     for name, value in q.items():
-        if name in app.knobs:
+        if name in app.control_choices():
+            picks.append((name, _choice(app, name, value)))
+        elif name in app.knobs:
             knob = app.knobs[name]
             changes.append((knob, _number(value, name)))
         elif name in TOGGLES:
@@ -104,6 +129,8 @@ def _set(app, q):
         knob.set(v)
     for name, on in switches:
         app.control_toggle(name, on)
+    for name, value in picks:
+        app.control_choice(name, value)
 
 
 def handle(app, path, q):
@@ -125,10 +152,11 @@ def handle(app, path, q):
         if name not in TOGGLES:
             raise ValueError("name må være en av: " + ", ".join(TOGGLES))
         app.control_toggle(name, _state_arg(q["state"]) if "state" in q else None)
+    elif path == "/choose":
+        name = q.get("name")
+        app.control_choice(name, _choice(app, name, q.get("value"), q.get("step")))
     elif path == "/mode":
-        if q.get("name") not in ("enkel", "avansert"):
-            raise ValueError("name må være enkel eller avansert")
-        app.control_mode(q["name"])
+        app.control_choice("mode", _choice(app, "mode", q.get("name")))
     else:
         raise LookupError(path)
     return state(app)

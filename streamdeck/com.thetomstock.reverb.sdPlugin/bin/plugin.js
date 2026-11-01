@@ -11,6 +11,7 @@ const POLL_MS = 600;
 const ACTION_KNOB = "com.thetomstock.reverb.knob";
 const ACTION_TOGGLE = "com.thetomstock.reverb.toggle";
 const ACTION_PRESET = "com.thetomstock.reverb.preset";
+const ACTION_CHOICE = "com.thetomstock.reverb.choice";
 
 // kortnavn som får plass på en tast
 const KNOB_NAMES = {
@@ -18,7 +19,14 @@ const KNOB_NAMES = {
   out_gain: "Volum ut", lc_freq: "Lavkutt", gate_db: "Støygrense", comp_amt: "Jevn lyd", tone: "Lys/mørk",
   predelay: "Ekko-start", mon_vol: "Øre-volum",
 };
-const TOGGLE_NAMES = { echo: "Ekko", monitor: "Hør meg selv", lowcut: "Lavkutt", gate: "Støyfilter", comp: "Kompressor" };
+const TOGGLE_NAMES = {
+  echo: "Ekko", monitor: "Hør meg selv", lowcut: "Lavkutt", gate: "Støyfilter", comp: "Kompressor",
+  exclusive: "Rask modus",
+};
+const CHOICE_NAMES = {
+  mode: "Visning", in_channel: "Kanal", block: "Forsinkelse", in_dev: "Mikrofon", out_dev: "Utgang",
+  mon_dev: "Øre-enhet",
+};
 
 const RED = "#ff1f1f";
 const GOLD = "#d4af37";
@@ -250,6 +258,22 @@ function presetKey(name, active, dead) {
   );
 }
 
+function choiceKey(label, text, dead) {
+  const lines = wrap(dead ? "Start appen" : text);
+  const y0 = 62 - ((lines.length - 1) * 26) / 2 + 9;
+  const body = lines
+    .map((l, i) => `<text x="72" y="${y0 + i * 26}" text-anchor="middle" font-family="Segoe UI, Arial" font-weight="700" font-size="${lines.length > 2 ? 20 : 24}" fill="${dead ? GREY : "#f2ead3"}">${esc(l)}</text>`)
+    .join("");
+  return svgUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">` +
+      `<rect width="144" height="144" fill="#0a0a0a"/>` +
+      `<rect x="10" y="10" width="124" height="96" rx="14" fill="#111" stroke="${dead ? GREY : GOLD}" stroke-width="5"/>` +
+      body +
+      `<text x="72" y="134" text-anchor="middle" font-family="Segoe UI, Arial" font-size="${label.length > 9 ? 17 : 20}" fill="${GOLD}">${esc(label)}</text>` +
+      `</svg>`
+  );
+}
+
 // ---------------------------------------------------------------- Stream Deck-hendelser
 
 const args = process.argv.slice(2);
@@ -266,10 +290,14 @@ const repeaters = new Map(); // context -> intervall for tasten som holdes inne
 const send = (obj) => sd && sd.send(obj);
 const knobSettings = (s) => ({ knob: "wet", keyAction: "up", amount: 5, setPct: 50, dialSteps: 1, ...s });
 const toggleSettings = (s) => ({ name: "echo", mode: "toggle", ...s });
-const presetSettings = (s) => ({ name: "Lydoppsett", values: {}, toggles: {}, ...s });
+const presetSettings = (s) => ({ name: "Lydoppsett", values: {}, toggles: {}, choices: {}, ...s });
+const choiceSettings = (s) => ({ name: "in_channel", keyAction: "next", value: "", ...s });
 
 function presetQuery(s) {
   const parts = [];
+  for (const [name, value] of Object.entries(s.choices || {})) {
+    if (value !== "" && value !== undefined) parts.push(`${q(name)}=${q(value)}`);
+  }
   for (const [key, pct] of Object.entries(s.values || {})) {
     if (typeof pct === "number" && isFinite(pct)) parts.push(`pct_${q(key)}=${pct}`);
   }
@@ -283,10 +311,12 @@ function presetActive(s) {
   if (!state) return false;
   const entries = Object.entries(s.values || {}).filter(([, v]) => typeof v === "number");
   const switches = Object.entries(s.toggles || {}).filter(([, v]) => v === "on" || v === "off");
-  if (!entries.length && !switches.length) return false;
+  const picks = Object.entries(s.choices || {}).filter(([, v]) => v !== "" && v !== undefined);
+  if (!entries.length && !switches.length && !picks.length) return false;
   return (
     entries.every(([k, v]) => state.knobs[k] && Math.abs(state.knobs[k].pct - v) < 1.5) &&
-    switches.every(([k, v]) => state.toggles[k] === (v === "on"))
+    switches.every(([k, v]) => state.toggles[k] === (v === "on")) &&
+    picks.every(([k, v]) => state.choices[k] && String(state.choices[k].value) === String(v))
   );
 }
 
@@ -318,6 +348,21 @@ function render(context) {
   } else if (a.action === ACTION_PRESET) {
     const s = presetSettings(a.settings);
     send({ event: "setImage", context, payload: { image: presetKey(s.name, presetActive(s), !state), target: 0 } });
+  } else if (a.action === ACTION_CHOICE) {
+    const s = choiceSettings(a.settings);
+    const c = state && state.choices[s.name];
+    const label = CHOICE_NAMES[s.name] || s.name;
+    if (a.controller === "Encoder") {
+      const n = c ? c.options.length : 0;
+      const i = c ? c.options.findIndex((o) => o.value === c.value) : 0;
+      send({
+        event: "setFeedback",
+        context,
+        payload: { title: label, value: c ? c.text : "Start appen", indicator: { value: n > 1 ? Math.round((i / (n - 1)) * 100) : 0 } },
+      });
+    } else {
+      send({ event: "setImage", context, payload: { image: choiceKey(label, c ? c.text : "", !c), target: 0 } });
+    }
   }
 }
 
@@ -395,6 +440,10 @@ function keyDown(context) {
     call(context, `/toggle?name=${q(s.name)}${state_}`);
   } else if (a.action === ACTION_PRESET) {
     call(context, presetQuery(presetSettings(a.settings)));
+  } else if (a.action === ACTION_CHOICE) {
+    const s = choiceSettings(a.settings);
+    if (s.keyAction === "set") call(context, `/choose?name=${q(s.name)}&value=${q(s.value)}`);
+    else call(context, `/choose?name=${q(s.name)}&step=${s.keyAction === "prev" ? -1 : 1}`);
   }
 }
 
@@ -413,10 +462,41 @@ async function capture(msg) {
     const now = await api("/state");
     const values = {};
     for (const [key, k] of Object.entries(now.knobs)) values[key] = Math.round(k.pct);
-    send({ event: "sendToPropertyInspector", action: msg.action, context: msg.context, payload: { values, toggles: now.toggles } });
+    const choices = {};
+    for (const key of ["mode", "in_channel", "block"]) choices[key] = String(now.choices[key].value);
+    send({
+      event: "sendToPropertyInspector",
+      action: msg.action,
+      context: msg.context,
+      payload: { values, toggles: now.toggles, choices },
+    });
   } catch (e) {
     send({ event: "showAlert", context: msg.context });
   }
+}
+
+async function sendChoices(msg) {
+  // innstillingsvinduet for Valg ber om listene (enhetsnavn finnes bare i appen)
+  try {
+    const now = await api("/state");
+    send({ event: "sendToPropertyInspector", action: msg.action, context: msg.context, payload: { choices: now.choices } });
+  } catch (e) {
+    send({ event: "sendToPropertyInspector", action: msg.action, context: msg.context, payload: { choices: null } });
+  }
+}
+
+// dreieknappen kan gå raskt gjennom listen, og hvert valg kan starte lyden på nytt, så vi samler dem
+const pendingChoice = new Map();
+function stepChoice(context, name, steps) {
+  const p = pendingChoice.get(name) || { steps: 0, timer: null };
+  p.steps += steps;
+  if (p.timer === null) {
+    p.timer = setTimeout(() => {
+      pendingChoice.delete(name);
+      if (p.steps !== 0) call(context, `/choose?name=${q(name)}&step=${p.steps}`);
+    }, 250);
+  }
+  pendingChoice.set(name, p);
 }
 
 function onMessage(text) {
@@ -457,6 +537,8 @@ function onMessage(text) {
       if (a && a.action === ACTION_KNOB) {
         const s = knobSettings(a.settings);
         step(msg.context, s.knob, (p.ticks || 0) * Math.max(1, Number(s.dialSteps) || 1));
+      } else if (a && a.action === ACTION_CHOICE) {
+        stepChoice(msg.context, choiceSettings(a.settings).name, p.ticks || 0);
       }
       break;
     }
@@ -468,6 +550,7 @@ function onMessage(text) {
     }
     case "sendToPlugin":
       if (p.cmd === "capture") capture(msg);
+      else if (p.cmd === "choices") sendChoices(msg);
       break;
   }
 }

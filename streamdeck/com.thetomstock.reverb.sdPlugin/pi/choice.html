@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <title>Valg</title>
+  <link rel="stylesheet" href="pi.css">
+</head>
+<body>
+  <div class="row"><label for="name">Hva vil du velge</label><select id="name" data-key="name"></select></div>
+  <div class="row">
+    <label for="keyAction">Når tasten trykkes</label>
+    <select id="keyAction" data-key="keyAction">
+      <option value="next">Neste i listen</option>
+      <option value="prev">Forrige i listen</option>
+      <option value="set">Sett til et bestemt valg</option>
+    </select>
+  </div>
+  <div class="row" id="valueRow">
+    <label for="value">Velg</label>
+    <select id="value" data-key="value"></select>
+  </div>
+  <div class="hint" id="deviceHint"></div>
+  <div class="hint">Dreieknappen på Stream Deck + blar gjennom listen. Lyden starter på nytt når du bytter enhet eller forsinkelse.</div>
+  <script src="pi.js"></script>
+  <script>
+    let live = null; // listene fra appen, null når appen ikke kjører
+
+    function options(name) {
+      const fixed = CHOICES.find((c) => c[0] === name);
+      if (live && live[name]) return live[name].options.map((o) => [String(o.value), o.text]);
+      return fixed && fixed[2] ? fixed[2] : [];
+    }
+
+    function fillValues() {
+      const name = document.getElementById("name").value;
+      const select = document.getElementById("value");
+      const wanted = settings.value !== undefined ? settings.value : "";
+      select.innerHTML = "";
+      const opts = options(name);
+      fillSelect(select, opts);
+      select.value = opts.some(([v]) => v === wanted) ? wanted : opts.length ? opts[0][0] : "";
+      const device = ["in_dev", "out_dev", "mon_dev"].includes(name);
+      document.getElementById("deviceHint").textContent =
+        device && !opts.length ? "Start appen og åpne denne siden på nytt for å se enhetene dine." : "";
+    }
+
+    function visibility() {
+      document.getElementById("valueRow").style.display =
+        document.getElementById("keyAction").value === "set" ? "" : "none";
+    }
+
+    window.page = {
+      init() {
+        fillSelect(document.getElementById("name"), CHOICES.map(([k, label]) => [k, label]));
+        bindFields({ name: "in_channel", keyAction: "next", value: "" });
+        fillValues();
+        visibility();
+        sendToPlugin({ cmd: "choices" });
+      },
+      changed() {
+        const sel = document.getElementById("value");
+        // byttet du hva som skal velges, må den lagrede verdien følge med
+        fillValues();
+        if (document.activeElement && document.activeElement.id === "name") {
+          settings.value = sel.value;
+          save();
+        }
+        visibility();
+      },
+      message(payload) {
+        live = payload.choices;
+        fillValues();
+      },
+    };
+  </script>
+</body>
+</html>
